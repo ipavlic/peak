@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"peak/pkg/parser"
-	"peak/pkg/transpiler"
+	"github.com/ipavlic/peak/pkg/parser"
+	"github.com/ipavlic/peak/pkg/transpiler"
 )
 
 // runFolder compiles all .peak files in the specified directory.

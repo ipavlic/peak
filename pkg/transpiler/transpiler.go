@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"peak/pkg/parser"
+	"github.com/ipavlic/peak/pkg/parser"
 )
 
 // FileResult represents the transpilation result for a single file

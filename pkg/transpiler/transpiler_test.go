@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"peak/pkg/parser"
+	"github.com/ipavlic/peak/pkg/parser"
 )
 
 func TestNewTranspiler(t *testing.T) {
