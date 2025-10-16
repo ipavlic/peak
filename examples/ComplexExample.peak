@@ -1,0 +1,76 @@
+public class ComplexExample {
+    // Complex nested: Dict with Queue values
+    // Maps task types to queues of task IDs
+    private Dict<String, Queue<Integer>> taskQueues;
+
+    // Dict with nested List values
+    // Maps categories to lists of items
+    private Dict<String, List<String>> categoryItems;
+
+    public ComplexExample() {
+        this.taskQueues = new Dict<String, Queue<Integer>>();
+        this.categoryItems = new Dict<String, List<String>>();
+    }
+
+    // Task queue operations
+    public void createTaskQueue(String taskType) {
+        Queue<Integer> queue = new Queue<Integer>();
+        taskQueues.put(taskType, queue);
+    }
+
+    public void addTask(String taskType, Integer taskId) {
+        Queue<Integer> queue = taskQueues.get(taskType);
+        if (queue != null) {
+            queue.enqueue(taskId);
+        }
+    }
+
+    public Integer getNextTask(String taskType) {
+        Queue<Integer> queue = taskQueues.get(taskType);
+        if (queue != null) {
+            return queue.dequeue();
+        }
+        return null;
+    }
+
+    public Boolean hasTasksOfType(String taskType) {
+        Queue<Integer> queue = taskQueues.get(taskType);
+        if (queue != null) {
+            return !queue.isEmpty();
+        }
+        return false;
+    }
+
+    // Category items operations
+    public void addCategory(String category, List<String> items) {
+        categoryItems.put(category, items);
+    }
+
+    public List<String> getItemsInCategory(String category) {
+        return categoryItems.get(category);
+    }
+
+    public void addItemToCategory(String category, String item) {
+        List<String> items = categoryItems.get(category);
+        if (items == null) {
+            items = new List<String>();
+            categoryItems.put(category, items);
+        }
+        items.add(item);
+    }
+
+    // Complex workflow combining both structures
+    public void processTaskBatch(String taskType, List<Integer> taskIds) {
+        // Ensure queue exists
+        Queue<Integer> queue = taskQueues.get(taskType);
+        if (queue == null) {
+            createTaskQueue(taskType);
+            queue = taskQueues.get(taskType);
+        }
+
+        // Add all task IDs to the queue
+        for (Integer taskId : taskIds) {
+            queue.enqueue(taskId);
+        }
+    }
+}

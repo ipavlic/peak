@@ -1,0 +1,25 @@
+public class QueueExample {
+    private Queue<Integer> intQueue;
+    private Queue<String> stringQueue;
+
+    public QueueExample() {
+        this.intQueue = new Queue<Integer>();
+        this.stringQueue = new Queue<String>();
+    }
+
+    public void addNumber(Integer num) {
+        intQueue.enqueue(num);
+    }
+
+    public void addName(String name) {
+        stringQueue.enqueue(name);
+    }
+
+    public Integer getNextNumber() {
+        return intQueue.dequeue();
+    }
+
+    public String getNextName() {
+        return stringQueue.dequeue();
+    }
+}

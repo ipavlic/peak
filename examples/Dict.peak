@@ -1,0 +1,22 @@
+public class Dict<K, V> {
+    private List<K> keys;
+    private List<V> values;
+
+    public Dict() {
+        this.keys = new List<K>();
+        this.values = new List<V>();
+    }
+
+    public void put(K key, V value) {
+        keys.add(key);
+        values.add(value);
+    }
+
+    public V get(K key) {
+        Integer index = keys.indexOf(key);
+        if (index >= 0) {
+            return values.get(index);
+        }
+        return null;
+    }
+}

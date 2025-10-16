@@ -1,0 +1,51 @@
+public class MultiParametersExample {
+    // Dict with String keys and Integer values (e.g., scores by player name)
+    private Dict<String, Integer> playerScores;
+
+    // Dict with Integer keys and String values (e.g., names by ID)
+    private Dict<Integer, String> playerNames;
+
+    // Dict with String keys and String values (e.g., email by username)
+    private Dict<String, String> userEmails;
+
+    public MultiParametersExample() {
+        this.playerScores = new Dict<String, Integer>();
+        this.playerNames = new Dict<Integer, String>();
+        this.userEmails = new Dict<String, String>();
+    }
+
+    // Player score methods
+    public void recordScore(String playerName, Integer score) {
+        playerScores.put(playerName, score);
+    }
+
+    public Integer getScore(String playerName) {
+        return playerScores.get(playerName);
+    }
+
+    // Player name methods
+    public void registerPlayer(Integer playerId, String name) {
+        playerNames.put(playerId, name);
+    }
+
+    public String getPlayerName(Integer playerId) {
+        return playerNames.get(playerId);
+    }
+
+    // User email methods
+    public void registerEmail(String username, String email) {
+        userEmails.put(username, email);
+    }
+
+    public String getEmail(String username) {
+        return userEmails.get(username);
+    }
+
+    // Combined operation demonstrating multiple Dict instantiations
+    public void recordPlayerScore(Integer playerId, Integer score) {
+        String playerName = playerNames.get(playerId);
+        if (playerName != null) {
+            playerScores.put(playerName, score);
+        }
+    }
+}

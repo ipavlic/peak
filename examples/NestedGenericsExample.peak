@@ -1,0 +1,44 @@
+public class NestedGenericsExample {
+    // Queue containing Lists of Integers
+    private Queue<List<Integer>> batchQueue;
+
+    // Queue containing Lists of Strings
+    private Queue<List<String>> nameBatchQueue;
+
+    public NestedGenericsExample() {
+        this.batchQueue = new Queue<List<Integer>>();
+        this.nameBatchQueue = new Queue<List<String>>();
+    }
+
+    // Add a batch of numbers
+    public void addBatch(List<Integer> batch) {
+        batchQueue.enqueue(batch);
+    }
+
+    // Get the next batch of numbers
+    public List<Integer> getNextBatch() {
+        return batchQueue.dequeue();
+    }
+
+    // Add a batch of names
+    public void addNameBatch(List<String> names) {
+        nameBatchQueue.enqueue(names);
+    }
+
+    // Get the next batch of names
+    public List<String> getNextNameBatch() {
+        return nameBatchQueue.dequeue();
+    }
+
+    // Process multiple batches
+    public void processBatches(List<List<Integer>> allBatches) {
+        for (List<Integer> batch : allBatches) {
+            batchQueue.enqueue(batch);
+        }
+    }
+
+    // Check if we have batches to process
+    public Boolean hasBatches() {
+        return !batchQueue.isEmpty();
+    }
+}

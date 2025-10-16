@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/ipavlic/Documents/personal/peak/**)",
+      "Bash(mv:*)",
+      "Bash(go build:*)",
+      "Bash(./peak:*)",
+      "Bash(../peak)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

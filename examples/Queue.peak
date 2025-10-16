@@ -1,0 +1,31 @@
+public class Queue<T> {
+    private List<T> items;
+    private Integer size;
+
+    public Queue() {
+        this.items = new List<T>();
+        this.size = 0;
+    }
+
+    public void enqueue(T item) {
+        items.add(item);
+        size++;
+    }
+
+    public T dequeue() {
+        if (size == 0) {
+            return null;
+        }
+        T item = items.remove(0);
+        size--;
+        return item;
+    }
+
+    public Integer getSize() {
+        return size;
+    }
+
+    public Boolean isEmpty() {
+        return size == 0;
+    }
+}
