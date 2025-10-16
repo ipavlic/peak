@@ -98,7 +98,10 @@ The `instantiateTemplate` function performs three distinct substitution passes t
 1. **Pass 1: Type Parameter Substitution**
    - Parse template to extract type parameters (e.g., `Queue<T>` → `["T"]`)
    - Parse usage to extract concrete types (e.g., `Queue<Integer>` → `["Integer"]`)
-   - Build substitution map: `{"T": "Integer"}`
+   - Build substitution map: `{"T": "Integer"}` or `{"T": "List<Integer>"}` for complex types
+   - **CRITICAL**: Use `typeArg.String()` to preserve full generic expressions (e.g., `List<Integer>`)
+     - DO NOT use `GenerateConcreteClassName()` which would flatten to `ListInteger`
+     - This ensures `List<T>` becomes `List<List<Integer>>` not `List<ListInteger>`
    - Replace all occurrences of type parameters in template body using word boundary detection
 
 2. **Pass 2: Nested Generic Replacement**
@@ -106,6 +109,7 @@ The `instantiateTemplate` function performs three distinct substitution passes t
    - Replace nested template usages with concrete class names
    - Example: `Queue<Boolean>` → `QueueBoolean` (critical for transitive dependencies)
    - This enables templates to use other templates internally
+   - **IMPORTANT**: Only custom templates are converted; built-in generics (List, Set, Map) are preserved
 
 3. **Pass 3: Class Name and Constructor Replacement**
    - Remove type parameters from class declaration
@@ -114,6 +118,12 @@ The `instantiateTemplate` function performs three distinct substitution passes t
 
 **Why Three Passes?**
 The multi-pass approach handles complex scenarios like `Dict<K, V>` using `Queue<K>` internally. When instantiating `Dict<String, Integer>`, Pass 1 creates `Queue<String>`, then Pass 2 converts it to `QueueString`.
+
+**Built-in Generic Preservation**:
+Salesforce's built-in generics (List, Set, Map) must ALWAYS be preserved as full generic expressions:
+- `Queue<List<Integer>>` with `T = List<Integer>` → `List<T>` becomes `List<List<Integer>>`
+- `Wrapper<Map<String, Integer>>` with `T = Map<String, Integer>` → `T getValue()` becomes `Map<String, Integer> getValue()`
+- Custom templates nested in built-in generics: `List<Queue<Integer>>` → `List<QueueInteger>`
 
 ### 3. Compilation Process
 

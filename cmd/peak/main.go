@@ -60,4 +60,3 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %s examples/ --watch              # Watch specific directory\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "Output .cls files are generated in source directories\n")
 }
-

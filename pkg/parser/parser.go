@@ -68,11 +68,11 @@ type GenericExpr struct {
 
 // GenericClassDef represents a generic class definition
 type GenericClassDef struct {
-	ClassName    string   // e.g., "Queue"
-	TypeParams   []string // e.g., ["T"]
-	Body         string   // The class body with generic type parameters
-	StartPos     int      // Start position in source
-	EndPos       int      // End position in source
+	ClassName  string   // e.g., "Queue"
+	TypeParams []string // e.g., ["T"]
+	Body       string   // The class body with generic type parameters
+	StartPos   int      // Start position in source
+	EndPos     int      // End position in source
 }
 
 // Parser handles the parsing of Peak source code

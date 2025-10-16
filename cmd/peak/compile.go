@@ -16,6 +16,12 @@ func runFolder(dir string) error {
 	return compileDirectory(dir)
 }
 
+const (
+	filePermission = 0o644   // Standard file permission for generated .cls files
+	peakExtension  = ".peak" // Peak source file extension
+	apexExtension  = ".cls"  // Apex output file extension
+)
+
 // compileDirectory compiles all .peak files in the specified directory.
 func compileDirectory(dir string) error {
 	startTime := time.Now()
@@ -24,17 +30,13 @@ func compileDirectory(dir string) error {
 	peakFiles, err := findPeakFiles(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Error: Directory '%s' does not exist\n", dir)
-			fmt.Fprintf(os.Stderr, "\nTip: Check the directory path and try again\n")
-			os.Exit(1)
+			return fmt.Errorf("directory '%s' does not exist\n\nTip: Check the directory path and try again", dir)
 		}
 		return fmt.Errorf("error finding .peak files: %w", err)
 	}
 
 	if len(peakFiles) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: No .peak files found in '%s'\n", dir)
-		fmt.Fprintf(os.Stderr, "\nTip: Make sure the directory contains .peak source files\n")
-		os.Exit(1)
+		return fmt.Errorf("no .peak files found in '%s'\n\nTip: Make sure the directory contains .peak source files", dir)
 	}
 
 	// Read all input files
@@ -75,7 +77,7 @@ func compileDirectory(dir string) error {
 			continue
 		}
 
-		if err := os.WriteFile(result.OutputPath, []byte(result.Content), 0644); err != nil {
+		if err := os.WriteFile(result.OutputPath, []byte(result.Content), filePermission); err != nil {
 			return fmt.Errorf("error writing %s: %w", result.OutputPath, err)
 		}
 
@@ -117,7 +119,7 @@ func findPeakFiles(root string) ([]string, error) {
 		}
 
 		// Collect .peak files
-		if !info.IsDir() && strings.HasSuffix(path, ".peak") {
+		if !info.IsDir() && strings.HasSuffix(path, peakExtension) {
 			peakFiles = append(peakFiles, path)
 		}
 

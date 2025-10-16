@@ -97,13 +97,13 @@ func TestFindGenerics(t *testing.T) {
 			},
 		},
 		{
-			name:  "ignore built-in List, Set, Map",
-			input: "List<String> list; Set<Integer> set; Map<String, Integer> map;",
+			name:     "ignore built-in List, Set, Map",
+			input:    "List<String> list; Set<Integer> set; Map<String, Integer> map;",
 			expected: map[string]string{},
 		},
 		{
-			name:  "ignore comparison operators",
-			input: "if (x < 5) { return true; }",
+			name:     "ignore comparison operators",
+			input:    "if (x < 5) { return true; }",
 			expected: map[string]string{},
 		},
 		{

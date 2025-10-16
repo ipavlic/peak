@@ -1,18 +1,27 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
+const (
+	debounceDuration = 500 * time.Millisecond // Debounce delay for file changes
+	timeFormat       = "15:04:05"             // Time format for change detection messages
+)
+
 // runWatch starts file watching mode for the specified directory.
 // It performs an initial compilation, then watches for .peak file changes
 // and recompiles automatically with a 500ms debounce delay.
+// Gracefully handles Ctrl+C (SIGINT) and SIGTERM signals.
 func runWatch(dir string) error {
 	// Verify directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -39,19 +48,39 @@ func runWatch(dir string) error {
 		return fmt.Errorf("failed to watch directory: %w", err)
 	}
 
+	// Set up signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	go func() {
+		<-sigChan
+		fmt.Fprintf(os.Stderr, "\nReceived interrupt signal, shutting down...\n")
+		cancel()
+	}()
+
 	// Debounce timer to prevent multiple recompiles on rapid changes
 	var debounceTimer *time.Timer
-	debounceDuration := 500 * time.Millisecond
 
 	for {
 		select {
+		case <-ctx.Done():
+			// Graceful shutdown
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			return nil
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil
 			}
 
 			// Only respond to .peak file changes (ignore .cls files)
-			if !strings.HasSuffix(event.Name, ".peak") {
+			if !strings.HasSuffix(event.Name, peakExtension) {
 				continue
 			}
 
@@ -63,9 +92,15 @@ func runWatch(dir string) error {
 				}
 
 				debounceTimer = time.AfterFunc(debounceDuration, func() {
-					fmt.Fprintf(os.Stderr, "\n[%s] Change detected: %s\n", time.Now().Format("15:04:05"), filepath.Base(event.Name))
-					if err := compileDirectory(dir); err != nil {
-						fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
+					// Check if context is still active before compiling
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						fmt.Fprintf(os.Stderr, "\n[%s] Change detected: %s\n", time.Now().Format(timeFormat), filepath.Base(event.Name))
+						if err := compileDirectory(dir); err != nil {
+							fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
+						}
 					}
 				})
 			}
@@ -78,4 +113,3 @@ func runWatch(dir string) error {
 		}
 	}
 }
-

@@ -1,0 +1,775 @@
+package transpiler
+
+import (
+	"strings"
+	"testing"
+
+	"peak/pkg/parser"
+)
+
+func TestNewTranspiler(t *testing.T) {
+	tr := NewTranspiler()
+	if tr == nil {
+		t.Fatal("NewTranspiler returned nil")
+	}
+	if tr.templates == nil {
+		t.Error("templates map not initialized")
+	}
+	if tr.templatePaths == nil {
+		t.Error("templatePaths map not initialized")
+	}
+	if tr.usages == nil {
+		t.Error("usages map not initialized")
+	}
+}
+
+func TestTranspileFiles_SimpleTemplate(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+    public Queue() { items = new List<T>(); }
+    public void enqueue(T item) { items.add(item); }
+}`,
+		"Example.peak": `public class Example {
+    private Queue<Integer> q;
+    public Example() { q = new Queue<Integer>(); }
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Check that we got results for: Example.cls, QueueInteger.cls
+	// Template file (Queue.peak) should be marked as template
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Find the template result
+	var templateResult *FileResult
+	for i := range results {
+		if results[i].IsTemplate {
+			templateResult = &results[i]
+			break
+		}
+	}
+	if templateResult == nil {
+		t.Fatal("no template result found")
+	}
+	if templateResult.OriginalPath != "Queue.peak" {
+		t.Errorf("expected template path Queue.peak, got %s", templateResult.OriginalPath)
+	}
+
+	// Find the Example.cls result
+	var exampleResult *FileResult
+	for i := range results {
+		if results[i].OutputPath == "Example.cls" {
+			exampleResult = &results[i]
+			break
+		}
+	}
+	if exampleResult == nil {
+		t.Fatal("no Example.cls result found")
+	}
+	if !strings.Contains(exampleResult.Content, "QueueInteger") {
+		t.Error("Example.cls should contain QueueInteger")
+	}
+	if strings.Contains(exampleResult.Content, "Queue<Integer>") {
+		t.Error("Example.cls should not contain Queue<Integer>")
+	}
+
+	// Find the QueueInteger.cls result
+	var concreteResult *FileResult
+	for i := range results {
+		if strings.Contains(results[i].OutputPath, "QueueInteger.cls") {
+			concreteResult = &results[i]
+			break
+		}
+	}
+	if concreteResult == nil {
+		t.Fatal("no QueueInteger.cls result found")
+	}
+	if !strings.Contains(concreteResult.Content, "public class QueueInteger") {
+		t.Error("concrete class should start with 'public class QueueInteger'")
+	}
+	if !strings.Contains(concreteResult.Content, "List<Integer>") {
+		t.Error("concrete class should contain List<Integer>")
+	}
+	if !strings.Contains(concreteResult.Content, "public QueueInteger()") {
+		t.Error("concrete class should have QueueInteger() constructor")
+	}
+}
+
+func TestTranspileFiles_MultipleTypeParameters(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Dict.peak": `public class Dict<K, V> {
+    private Map<K, V> items;
+    public Dict() { items = new Map<K, V>(); }
+    public void put(K key, V value) { items.put(key, value); }
+}`,
+		"Example.peak": `public class Example {
+    private Dict<String, Integer> dict;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Find the DictStringInteger.cls result
+	var concreteResult *FileResult
+	for i := range results {
+		if strings.Contains(results[i].OutputPath, "DictStringInteger.cls") {
+			concreteResult = &results[i]
+			break
+		}
+	}
+	if concreteResult == nil {
+		t.Fatal("no DictStringInteger.cls result found")
+	}
+	if !strings.Contains(concreteResult.Content, "public class DictStringInteger") {
+		t.Error("concrete class should start with 'public class DictStringInteger'")
+	}
+	if !strings.Contains(concreteResult.Content, "Map<String, Integer>") {
+		t.Error("concrete class should contain Map<String, Integer>")
+	}
+	if !strings.Contains(concreteResult.Content, "public void put(String key, Integer value)") {
+		t.Error("concrete class should have correctly substituted method signature")
+	}
+}
+
+func TestTranspileFiles_TransitiveDependencies(t *testing.T) {
+	// This test verifies that when a template uses another template,
+	// both concrete classes are generated correctly
+	// Example: Dict<String, Queue<Integer>> should generate both
+	// DictStringQueueInteger and QueueInteger
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+}`,
+		"Dict.peak": `public class Dict<K, V> {
+    private List<K> keys;
+    private List<V> values;
+}`,
+		"Example.peak": `public class Example {
+    private Dict<String, Queue<Integer>> dict;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Should generate: Example.cls, DictStringQueueInteger.cls, QueueInteger.cls
+	var foundQueueInteger, foundDictStringQueueInteger bool
+	for i := range results {
+		// Use filepath.Base or exact match to avoid "DictStringQueueInteger.cls" matching "QueueInteger.cls"
+		if results[i].OutputPath == "QueueInteger.cls" || strings.HasSuffix(results[i].OutputPath, "/QueueInteger.cls") {
+			foundQueueInteger = true
+			// Check that it's properly instantiated
+			if !strings.Contains(results[i].Content, "List<Integer>") {
+				t.Errorf("QueueInteger should contain List<Integer>, got:\n%s", results[i].Content)
+			}
+		}
+		if strings.Contains(results[i].OutputPath, "DictStringQueueInteger.cls") {
+			foundDictStringQueueInteger = true
+			// Check that nested Queue<Integer> type is replaced with QueueInteger
+			if !strings.Contains(results[i].Content, "QueueInteger") {
+				t.Error("DictStringQueueInteger should contain QueueInteger")
+			}
+		}
+	}
+
+	if !foundQueueInteger {
+		t.Error("QueueInteger.cls not generated (transitive dependency)")
+	}
+	if !foundDictStringQueueInteger {
+		t.Error("DictStringQueueInteger.cls not generated")
+	}
+}
+
+func TestTranspileFiles_NestedGenerics(t *testing.T) {
+	// Tests that nested built-in generics are properly preserved.
+	// When Queue<List<Integer>> is instantiated, T should be replaced with "List<Integer>",
+	// so List<T> becomes List<List<Integer>>, NOT List<ListInteger>.
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+}`,
+		"Example.peak": `public class Example {
+    private Queue<List<Integer>> q;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Find the QueueListInteger.cls result
+	var concreteResult *FileResult
+	for i := range results {
+		if strings.Contains(results[i].OutputPath, "QueueListInteger.cls") {
+			concreteResult = &results[i]
+			break
+		}
+	}
+	if concreteResult == nil {
+		t.Fatal("no QueueListInteger.cls result found")
+	}
+	// Correct behavior: List<T> where T=List<Integer> should become List<List<Integer>>
+	if !strings.Contains(concreteResult.Content, "List<List<Integer>>") {
+		t.Errorf("concrete class should contain List<List<Integer>>, got:\n%s", concreteResult.Content)
+	}
+	// Make sure it doesn't have the old buggy behavior
+	if strings.Contains(concreteResult.Content, "List<ListInteger>") {
+		t.Error("concrete class should NOT contain List<ListInteger> (old buggy behavior)")
+	}
+}
+
+func TestTranspileFiles_ParseError(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Bad.peak": `public class Bad<<T>> {
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles should not return error, got: %v", err)
+	}
+
+	// Should have a result with an error
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	if results[0].Error == nil {
+		t.Error("expected error in result")
+	}
+}
+
+func TestTranspileFiles_NoTemplates(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Example.peak": `public class Example {
+    private Integer x;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].IsTemplate {
+		t.Error("Example.peak should not be marked as template")
+	}
+	if results[0].OutputPath != "Example.cls" {
+		t.Errorf("expected output path Example.cls, got %s", results[0].OutputPath)
+	}
+}
+
+func TestTranspileFiles_BuiltInGenerics(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Example.peak": `public class Example {
+    private List<String> list;
+    private Set<Integer> set;
+    private Map<String, Integer> map;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Should only generate Example.cls, no concrete classes for built-in generics
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].OutputPath != "Example.cls" {
+		t.Errorf("expected Example.cls, got %s", results[0].OutputPath)
+	}
+	// Built-in generics should remain unchanged
+	if !strings.Contains(results[0].Content, "List<String>") {
+		t.Error("List<String> should remain unchanged")
+	}
+	if !strings.Contains(results[0].Content, "Set<Integer>") {
+		t.Error("Set<Integer> should remain unchanged")
+	}
+	if !strings.Contains(results[0].Content, "Map<String, Integer>") {
+		t.Error("Map<String, Integer> should remain unchanged")
+	}
+}
+
+func TestReplaceTypeParameter(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		param        string
+		concreteType string
+		expected     string
+	}{
+		{
+			name:         "simple replacement",
+			input:        "private T item;",
+			param:        "T",
+			concreteType: "Integer",
+			expected:     "private Integer item;",
+		},
+		{
+			name:         "multiple occurrences",
+			input:        "public T get() { return (T)item; }",
+			param:        "T",
+			concreteType: "String",
+			expected:     "public String get() { return (String)item; }",
+		},
+		{
+			name:         "no partial match in String",
+			input:        "private String s; private T item;",
+			param:        "T",
+			concreteType: "Integer",
+			expected:     "private String s; private Integer item;",
+		},
+		{
+			name:         "word boundary respected",
+			input:        "private T item; private Tuple tuple;",
+			param:        "T",
+			concreteType: "Boolean",
+			expected:     "private Boolean item; private Tuple tuple;",
+		},
+		{
+			name:         "class name replacement",
+			input:        "public class Queue { public Queue() {} }",
+			param:        "Queue",
+			concreteType: "QueueInteger",
+			expected:     "public class QueueInteger { public QueueInteger() {} }",
+		},
+		{
+			name:         "no replacement when part of identifier",
+			input:        "private Testing test;",
+			param:        "T",
+			concreteType: "String",
+			expected:     "private Testing test;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := replaceTypeParameter(tt.input, tt.param, tt.concreteType)
+			if result != tt.expected {
+				t.Errorf("expected:\n%s\ngot:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestIsIdentifierChar(t *testing.T) {
+	tests := []struct {
+		char     rune
+		expected bool
+	}{
+		{'a', true},
+		{'z', true},
+		{'A', true},
+		{'Z', true},
+		{'0', true},
+		{'9', true},
+		{'_', true},
+		{' ', false},
+		{'\t', false},
+		{'\n', false},
+		{'.', false},
+		{'<', false},
+		{'>', false},
+		{',', false},
+		{';', false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.char), func(t *testing.T) {
+			result := isIdentifierChar(tt.char)
+			if result != tt.expected {
+				t.Errorf("isIdentifierChar(%q) = %v, expected %v", tt.char, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestReplaceGenericUsages(t *testing.T) {
+	// Create a transpiler with some templates
+	tr := NewTranspiler()
+	tr.templates["Queue"] = &parser.GenericClassDef{
+		ClassName:  "Queue",
+		TypeParams: []string{"T"},
+		Body:       "{}",
+	}
+	tr.templates["Dict"] = &parser.GenericClassDef{
+		ClassName:  "Dict",
+		TypeParams: []string{"K", "V"},
+		Body:       "{}",
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		generics map[string]*parser.GenericExpr
+		expected string
+	}{
+		{
+			name:  "single generic replacement",
+			input: "private Queue<Integer> q;",
+			generics: map[string]*parser.GenericExpr{
+				"Queue<Integer>": {
+					BaseType: "Queue",
+					TypeArgs: []parser.GenericExpr{{BaseType: "Integer", IsSimple: true}},
+				},
+			},
+			expected: "private QueueInteger q;",
+		},
+		{
+			name:  "multiple generics",
+			input: "Queue<String> q1; Queue<Integer> q2;",
+			generics: map[string]*parser.GenericExpr{
+				"Queue<String>": {
+					BaseType: "Queue",
+					TypeArgs: []parser.GenericExpr{{BaseType: "String", IsSimple: true}},
+				},
+				"Queue<Integer>": {
+					BaseType: "Queue",
+					TypeArgs: []parser.GenericExpr{{BaseType: "Integer", IsSimple: true}},
+				},
+			},
+			expected: "QueueString q1; QueueInteger q2;",
+		},
+		{
+			name:  "nested generics - longest first",
+			input: "private Queue<List<Integer>> q;",
+			generics: map[string]*parser.GenericExpr{
+				"Queue<List<Integer>>": {
+					BaseType: "Queue",
+					TypeArgs: []parser.GenericExpr{
+						{
+							BaseType: "List",
+							TypeArgs: []parser.GenericExpr{{BaseType: "Integer", IsSimple: true}},
+						},
+					},
+				},
+			},
+			expected: "private QueueListInteger q;",
+		},
+		{
+			name:     "no generics",
+			input:    "private Integer x;",
+			generics: map[string]*parser.GenericExpr{},
+			expected: "private Integer x;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tr.replaceGenericUsages(tt.input, tt.generics)
+			if result != tt.expected {
+				t.Errorf("expected:\n%s\ngot:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestInstantiateTemplate(t *testing.T) {
+	tr := NewTranspiler()
+
+	tests := []struct {
+		name          string
+		template      *parser.GenericClassDef
+		instantiation *parser.GenericExpr
+		checks        []string // strings that should appear in output
+		notChecks     []string // strings that should NOT appear in output
+	}{
+		{
+			name: "simple single type parameter",
+			template: &parser.GenericClassDef{
+				ClassName:  "Queue",
+				TypeParams: []string{"T"},
+				Body: `{
+    private List<T> items;
+    public Queue() { items = new List<T>(); }
+    public void enqueue(T item) { items.add(item); }
+}`,
+			},
+			instantiation: &parser.GenericExpr{
+				BaseType: "Queue",
+				TypeArgs: []parser.GenericExpr{{BaseType: "Integer", IsSimple: true}},
+			},
+			checks: []string{
+				"public class QueueInteger",
+				"List<Integer>",
+				"public QueueInteger()",
+				"public void enqueue(Integer item)",
+			},
+			notChecks: []string{
+				"<T>",
+				"Queue<",
+				"List<T>",
+			},
+		},
+		{
+			name: "multiple type parameters",
+			template: &parser.GenericClassDef{
+				ClassName:  "Dict",
+				TypeParams: []string{"K", "V"},
+				Body: `{
+    private Map<K, V> items;
+    public Dict() {}
+    public void put(K key, V value) {}
+}`,
+			},
+			instantiation: &parser.GenericExpr{
+				BaseType: "Dict",
+				TypeArgs: []parser.GenericExpr{
+					{BaseType: "String", IsSimple: true},
+					{BaseType: "Integer", IsSimple: true},
+				},
+			},
+			checks: []string{
+				"public class DictStringInteger",
+				"Map<String, Integer>",
+				"public void put(String key, Integer value)",
+			},
+			notChecks: []string{
+				"<K, V>",
+				"<K>",
+				"<V>",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tr.instantiateTemplate(tt.template, tt.instantiation)
+
+			for _, check := range tt.checks {
+				if !strings.Contains(result, check) {
+					t.Errorf("expected output to contain %q\nGot:\n%s", check, result)
+				}
+			}
+
+			for _, notCheck := range tt.notChecks {
+				if strings.Contains(result, notCheck) {
+					t.Errorf("expected output NOT to contain %q\nGot:\n%s", notCheck, result)
+				}
+			}
+		})
+	}
+}
+
+func TestInstantiateTemplate_TypeParameterMismatch(t *testing.T) {
+	tr := NewTranspiler()
+	template := &parser.GenericClassDef{
+		ClassName:  "Queue",
+		TypeParams: []string{"T"},
+		Body:       "{}",
+	}
+	instantiation := &parser.GenericExpr{
+		BaseType: "Queue",
+		TypeArgs: []parser.GenericExpr{
+			{BaseType: "String", IsSimple: true},
+			{BaseType: "Integer", IsSimple: true},
+		},
+	}
+
+	result := tr.instantiateTemplate(template, instantiation)
+	if !strings.Contains(result, "ERROR") {
+		t.Error("expected error comment for type parameter mismatch")
+	}
+	if !strings.Contains(result, "expected 1, got 2") {
+		t.Error("expected error message to mention parameter count")
+	}
+}
+
+func TestTranspileFiles_ComplexNestedGenerics(t *testing.T) {
+	// Tests that built-in generics (List, Set, Map) are preserved while
+	// custom templates (Queue, Wrapper) are correctly converted, even in complex nesting.
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Wrapper.peak": `public class Wrapper<T> {
+    private T value;
+    public T getValue() { return value; }
+    public void setValue(T v) { value = v; }
+}`,
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+    public T get() { return items[0]; }
+}`,
+		"Example.peak": `public class Example {
+    // Built-in generic with custom template type arg
+    private Wrapper<Map<String, Integer>> w1;
+
+    // Custom template with built-in generic type arg
+    private Queue<List<String>> q1;
+
+    // Custom template with custom template type arg
+    private Wrapper<Queue<Integer>> w2;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	tests := []struct {
+		fileName         string
+		shouldContain    []string
+		shouldNotContain []string
+	}{
+		{
+			fileName: "WrapperMapStringInteger.cls",
+			shouldContain: []string{
+				"public class WrapperMapStringInteger",
+				"Map<String, Integer> value",
+				"Map<String, Integer> getValue()",
+				"void setValue(Map<String, Integer> v)",
+			},
+			shouldNotContain: []string{
+				"MapStringInteger value", // Should NOT flatten built-in generic
+			},
+		},
+		{
+			fileName: "QueueListString.cls",
+			shouldContain: []string{
+				"public class QueueListString",
+				"List<List<String>> items",
+				"List<String> get()",
+			},
+			shouldNotContain: []string{
+				"List<ListString>", // Should NOT flatten built-in generic
+				"ListString get()", // Should NOT flatten built-in generic
+			},
+		},
+		{
+			fileName: "WrapperQueueInteger.cls",
+			shouldContain: []string{
+				"public class WrapperQueueInteger",
+				"QueueInteger value", // Custom template should be converted
+				"QueueInteger getValue()",
+				"void setValue(QueueInteger v)",
+			},
+			shouldNotContain: []string{
+				"Queue<Integer>", // Custom template should be converted
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		var result *FileResult
+		for i := range results {
+			if strings.Contains(results[i].OutputPath, tt.fileName) {
+				result = &results[i]
+				break
+			}
+		}
+
+		if result == nil {
+			t.Errorf("%s not found", tt.fileName)
+			continue
+		}
+
+		for _, expected := range tt.shouldContain {
+			if !strings.Contains(result.Content, expected) {
+				t.Errorf("%s should contain %q\nGot:\n%s", tt.fileName, expected, result.Content)
+			}
+		}
+
+		for _, unexpected := range tt.shouldNotContain {
+			if strings.Contains(result.Content, unexpected) {
+				t.Errorf("%s should NOT contain %q\nGot:\n%s", tt.fileName, unexpected, result.Content)
+			}
+		}
+	}
+}
+
+func TestTranspileFile(t *testing.T) {
+	tr := NewTranspiler()
+	tr.templates["Queue"] = &parser.GenericClassDef{
+		ClassName:  "Queue",
+		TypeParams: []string{"T"},
+		Body:       "{}",
+	}
+
+	tests := []struct {
+		name           string
+		path           string
+		content        string
+		expectTemplate bool
+		expectError    bool
+		outputPath     string
+		checkContent   string
+	}{
+		{
+			name: "non-template file with generics",
+			path: "Example.peak",
+			content: `public class Example {
+    private Queue<Integer> q;
+}`,
+			expectTemplate: false,
+			expectError:    false,
+			outputPath:     "Example.cls",
+			checkContent:   "QueueInteger",
+		},
+		{
+			name: "template file",
+			path: "Queue.peak",
+			content: `public class Queue<T> {
+    private List<T> items;
+}`,
+			expectTemplate: true,
+			expectError:    false,
+		},
+		{
+			name:           "file without generics",
+			path:           "Simple.peak",
+			content:        "public class Simple { private Integer x; }",
+			expectTemplate: false,
+			expectError:    false,
+			outputPath:     "Simple.cls",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tr.transpileFile(tt.path, tt.content)
+
+			if tt.expectError && err == nil {
+				t.Error("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if result.IsTemplate != tt.expectTemplate {
+				t.Errorf("expected IsTemplate=%v, got %v", tt.expectTemplate, result.IsTemplate)
+			}
+
+			if !tt.expectTemplate && result.OutputPath != tt.outputPath {
+				t.Errorf("expected output path %s, got %s", tt.outputPath, result.OutputPath)
+			}
+
+			if tt.checkContent != "" && !strings.Contains(result.Content, tt.checkContent) {
+				t.Errorf("expected content to contain %q", tt.checkContent)
+			}
+		})
+	}
+}

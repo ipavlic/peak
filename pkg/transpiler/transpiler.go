@@ -21,8 +21,8 @@ type FileResult struct {
 	OriginalPath string
 	OutputPath   string
 	Content      string
-	IsTemplate   bool   // true if this file contains a generic class definition
-	Error        error  // error encountered during transpilation
+	IsTemplate   bool  // true if this file contains a generic class definition
+	Error        error // error encountered during transpilation
 }
 
 // Transpiler handles transpilation of Peak files to Apex
@@ -245,14 +245,15 @@ func (t *Transpiler) instantiateTemplate(template *parser.GenericClassDef, insta
 	}
 
 	// Build substitution map for type parameters
+	// IMPORTANT: For complex type arguments (e.g., List<Integer>), we must preserve
+	// the full generic expression, not flatten it to a concrete class name.
+	// This ensures that "T" in "List<T>" becomes "List<Integer>" not "ListInteger".
 	substitutions := make(map[string]string, len(template.TypeParams))
 	for i, param := range template.TypeParams {
 		typeArg := instantiation.TypeArgs[i]
-		if typeArg.IsSimple {
-			substitutions[param] = typeArg.BaseType
-		} else {
-			substitutions[param] = parser.GenerateConcreteClassName(&typeArg)
-		}
+		// Use String() to preserve the generic expression (List<Integer>)
+		// instead of GenerateConcreteClassName which would flatten it (ListInteger)
+		substitutions[param] = typeArg.String()
 	}
 
 	// Pass 1: Replace type parameters with concrete types
