@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"peak/pkg/parser"
-	"peak/pkg/transpiler"
 )
 
 // runWatch starts file watching mode for the specified directory.
@@ -81,100 +79,3 @@ func runWatch(dir string) error {
 	}
 }
 
-// compileDirectory compiles all .peak files in the specified directory.
-// It returns an error if compilation fails for any files.
-func compileDirectory(dir string) error {
-	startTime := time.Now()
-
-	// Find all .peak files
-	peakFiles, err := findPeakFiles(dir)
-	if err != nil {
-		return fmt.Errorf("error finding .peak files: %w", err)
-	}
-
-	if len(peakFiles) == 0 {
-		fmt.Fprintf(os.Stderr, "No .peak files found in %s\n", dir)
-		return nil
-	}
-
-	// Read all files
-	files := make(map[string]string, len(peakFiles))
-	for _, filePath := range peakFiles {
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("error reading %s: %w", filePath, err)
-		}
-		files[filePath] = string(content)
-	}
-
-	// Transpile
-	tr := transpiler.NewTranspiler()
-	results, err := tr.TranspileFiles(files)
-	if err != nil {
-		return fmt.Errorf("transpilation error: %w", err)
-	}
-
-	// Write output files and collect statistics
-	var generatedFiles, skippedTemplates, errorCount int
-
-	for _, result := range results {
-		// Handle errors
-		if result.Error != nil {
-			errorCount++
-			if parseErr, ok := result.Error.(*parser.ParseError); ok {
-				fmt.Fprint(os.Stderr, parseErr.FormatError())
-			} else {
-				fmt.Fprintf(os.Stderr, "  ERROR in %s: %v\n", filepath.Base(result.OriginalPath), result.Error)
-			}
-			continue
-		}
-
-		if result.IsTemplate {
-			skippedTemplates++
-			continue
-		}
-
-		if err := os.WriteFile(result.OutputPath, []byte(result.Content), 0644); err != nil {
-			return fmt.Errorf("error writing %s: %w", result.OutputPath, err)
-		}
-
-		generatedFiles++
-	}
-
-	// Report compilation results
-	elapsed := time.Since(startTime)
-	if errorCount > 0 {
-		fmt.Fprintf(os.Stderr, "✗ Compiled %d file(s) (skipped %d template(s)) with %d error(s) in %v\n",
-			generatedFiles, skippedTemplates, errorCount, elapsed.Round(time.Millisecond))
-		return fmt.Errorf("%d compilation error(s)", errorCount)
-	}
-
-	fmt.Fprintf(os.Stderr, "✓ Compiled %d file(s) (skipped %d template(s)) in %v\n",
-		generatedFiles, skippedTemplates, elapsed.Round(time.Millisecond))
-	return nil
-}
-
-// findPeakFiles recursively finds all .peak files in a directory
-func findPeakFiles(root string) ([]string, error) {
-	var peakFiles []string
-
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip hidden directories and files
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") && path != root {
-			return filepath.SkipDir
-		}
-
-		// Collect .peak files
-		if !info.IsDir() && strings.HasSuffix(path, ".peak") {
-			peakFiles = append(peakFiles, path)
-		}
-
-		return nil
-	})
-
-	return peakFiles, err
-}

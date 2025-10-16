@@ -23,7 +23,8 @@
       "Bash(./peak examples/)",
       "Bash(../peak)",
       "Bash(./peak nonexistent)",
-      "Bash(./peak examples/BadTemplate.peak)"
+      "Bash(./peak examples/BadTemplate.peak)",
+      "Bash(git mv:*)"
     ],
     "deny": [],
     "ask": []

@@ -3,14 +3,23 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"peak/pkg/parser"
 	"peak/pkg/transpiler"
 )
 
 // runFolder compiles all .peak files in the specified directory.
-// It provides detailed output for each file processed.
 func runFolder(dir string) error {
+	return compileDirectory(dir)
+}
+
+// compileDirectory compiles all .peak files in the specified directory.
+func compileDirectory(dir string) error {
+	startTime := time.Now()
+
 	// Find all .peak files recursively
 	peakFiles, err := findPeakFiles(dir)
 	if err != nil {
@@ -55,7 +64,7 @@ func runFolder(dir string) error {
 			if parseErr, ok := result.Error.(*parser.ParseError); ok {
 				fmt.Fprint(os.Stderr, parseErr.FormatError())
 			} else {
-				fmt.Fprintf(os.Stderr, "ERROR in %s: %v\n", result.OriginalPath, result.Error)
+				fmt.Fprintf(os.Stderr, "  ERROR in %s: %v\n", result.OriginalPath, result.Error)
 			}
 			continue
 		}
@@ -78,13 +87,42 @@ func runFolder(dir string) error {
 		}
 	}
 
-	// Report completion status
-	fmt.Fprintf(os.Stderr, "\nTranspilation complete!\n")
+	// Report compilation results
+	elapsed := time.Since(startTime)
+	fmt.Fprintf(os.Stderr, "\n")
+
 	if errorCount > 0 {
-		fmt.Fprintf(os.Stderr, "Generated %d files (skipped %d templates) with %d errors\n", generatedFiles, skippedTemplates, errorCount)
+		fmt.Fprintf(os.Stderr, "✗ Compiled %d file(s) (skipped %d template(s)) with %d error(s) in %v\n",
+			generatedFiles, skippedTemplates, errorCount, elapsed.Round(time.Millisecond))
 		return fmt.Errorf("compilation had %d error(s)", errorCount)
 	}
 
-	fmt.Fprintf(os.Stderr, "Generated %d files (skipped %d templates)\n", generatedFiles, skippedTemplates)
+	fmt.Fprintf(os.Stderr, "✓ Compiled %d file(s) (skipped %d template(s)) in %v\n",
+		generatedFiles, skippedTemplates, elapsed.Round(time.Millisecond))
 	return nil
+}
+
+// findPeakFiles recursively finds all .peak files in a directory
+func findPeakFiles(root string) ([]string, error) {
+	var peakFiles []string
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip hidden directories and files
+		if info.IsDir() && strings.HasPrefix(info.Name(), ".") && path != root {
+			return filepath.SkipDir
+		}
+
+		// Collect .peak files
+		if !info.IsDir() && strings.HasSuffix(path, ".peak") {
+			peakFiles = append(peakFiles, path)
+		}
+
+		return nil
+	})
+
+	return peakFiles, err
 }
