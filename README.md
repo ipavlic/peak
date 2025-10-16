@@ -309,4 +309,4 @@ This design ensures Peak works with any Apex version, present or future.
 
 ---
 
-**Questions or Issues?** Open an issue on GitHub or check the `examples/` directory for working code.
+**Questions or Issues?** Open an issue or check the `examples/` directory for working code.
