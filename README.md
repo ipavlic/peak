@@ -307,10 +307,6 @@ Peak uses a minimal intervention approach:
 
 This design ensures Peak works with any Apex version, present or future.
 
-## Acknowledgments
-
-Peak was inspired by the need for reusable data structures in Salesforce Apex. The project demonstrates that you don't need to parse an entire language to extend it—targeted transformation is enough.
-
 ---
 
 **Questions or Issues?** Open an issue on GitHub or check the `examples/` directory for working code.
