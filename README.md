@@ -1,6 +1,6 @@
 # Peak - Generics for Salesforce Apex
 
-**Peak** is a transpiler that brings generic programming to Salesforce Apex. Write reusable generic classes once, and Peak generates type-safe concrete Apex classes ready for deployment.
+**Peak** is a transpiler that brings generic programming back to Salesforce Apex. Write reusable generic classes once, and Peak generates type-safe concrete Apex classes ready for deployment.
 
 ```apex
 // Write once
@@ -20,9 +20,9 @@ Queue<Account> accounts = new Queue<Account>();
 Peak brings compile-time generics to Apex without runtime overhead:
 
 - **Write once, use everywhere**: Create a generic like `Queue<T>` and use it with any type
-- **Type safety**: Generated classes are strongly typed—no casting, no runtime errors
+- **Type safety**: Generated classes are strongly typed — no casting, no runtime errors
 - **Zero runtime cost**: All generics resolve at compile time to concrete classes
-- **Future-proof**: Minimal syntax transformation means compatibility with all Apex versions
+- **Future-proof**: Minimal syntax transformation means compatibility with upcoming Apex versions
 - **Nested generics**: Support for complex types like `Queue<List<Integer>>`
 
 ## Quick Start
@@ -167,7 +167,7 @@ Generates concrete classes like `QueueListInteger.cls` and `DictStringQueueAccou
 
 ### Built-in Generics Preserved
 
-Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes, ensuring seamless integration with standard Apex.
+Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes.
 
 ## CLI Reference
 
@@ -202,14 +202,14 @@ examples/
 
 ### Type Parameters Must Be Single Letters
 
+Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.).
+
 ```apex
 ✓ class Queue<T>              // Good - single letter
 ✓ class Dict<K, V>            // Good - multiple single letters
 ✗ class Queue<Type>           // Error - multi-letter not allowed
 ✗ class Dict<T, T>            // Error - duplicate parameters
 ```
-
-Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.). This constraint ensures clear, conventional generic code.
 
 ### Valid Generic Expressions
 
