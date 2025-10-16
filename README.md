@@ -19,7 +19,7 @@ Queue<Account> accounts = new Queue<Account>();
 
 Peak brings compile-time generics to Apex without runtime overhead:
 
-- **Write once, use everywhere**: Create a generic `Queue<T>` and use it with any type
+- **Write once, use everywhere**: Create a generic like `Queue<T>` and use it with any type
 - **Type safety**: Generated classes are strongly typed—no casting, no runtime errors
 - **Zero runtime cost**: All generics resolve at compile time to concrete classes
 - **Future-proof**: Minimal syntax transformation means compatibility with all Apex versions
@@ -31,12 +31,12 @@ Peak brings compile-time generics to Apex without runtime overhead:
 
 ```bash
 # Install from source (requires Go 1.20+)
-git clone https://github.com/yourusername/peak.git
+git clone https://github.com/ipavlic/peak.git
 cd peak
 go build -o peak ./cmd/peak
 
 # Or install directly
-go install github.com/yourusername/peak/cmd/peak@latest
+go install github.com/ipavlic/peak/cmd/peak@latest
 ```
 
 ### Basic Usage
@@ -307,10 +307,6 @@ Peak uses a minimal intervention approach:
 
 This design ensures Peak works with any Apex version, present or future.
 
-## Acknowledgments
-
-Peak was inspired by the need for reusable data structures in Salesforce Apex. The project demonstrates that you don't need to parse an entire language to extend it—targeted transformation is enough.
-
 ---
 
-**Questions or Issues?** Open an issue on GitHub or check the `examples/` directory for working code.
+**Questions or Issues?** Open an issue or check the `examples/` directory for working code.
