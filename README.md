@@ -1,5 +1,9 @@
 # Peak - Generics for Salesforce Apex
 
+[![Test and Coverage](https://github.com/ipavlic/peak/actions/workflows/test.yml/badge.svg)](https://github.com/ipavlic/peak/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/ipavlic/peak/branch/main/graph/badge.svg)](https://codecov.io/gh/ipavlic/peak)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ipavlic/peak)](https://goreportcard.com/report/github.com/ipavlic/peak)
+
 **Peak** is a transpiler that brings generic programming back to Salesforce Apex. Write reusable generic classes once, and Peak generates type-safe concrete Apex classes ready for deployment.
 
 ```apex

@@ -1,1 +1,9 @@
 .claude/
+
+# Coverage files
+coverage.out
+*.coverprofile
+
+# Build artifacts
+peak
+*.exe
