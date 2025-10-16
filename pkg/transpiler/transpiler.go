@@ -44,80 +44,12 @@ func NewTranspiler() *Transpiler {
 // TranspileFiles processes multiple files and generates concrete classes
 func (t *Transpiler) TranspileFiles(files map[string]string) ([]FileResult, error) {
 	var results []FileResult
-	hasErrors := false
 
 	// Phase 1: Collect all generic class definitions (templates)
-	for path, content := range files {
-		p := parser.NewParser(content)
-		p.SetFileName(path)
-		defs, err := p.FindGenericClassDefinitions()
-		if err != nil {
-			hasErrors = true
-			results = append(results, FileResult{
-				OriginalPath: path,
-				Error:        err,
-			})
-			continue
-		}
-
-		for className, def := range defs {
-			t.templates[className] = def
-			t.templatePaths[className] = path
-		}
-	}
+	hasErrors := t.collectTemplates(files, &results)
 
 	// Phase 2: Collect all generic instantiations
-	for path, content := range files {
-		// Check if this file defines templates
-		p := parser.NewParser(content)
-		defs, _ := p.FindGenericClassDefinitions()
-
-		var contentToScan string
-		if len(defs) > 0 {
-			// This file defines templates - scan only the class bodies, not the declarations
-			// This prevents "class Queue<T>" from being treated as a usage of Queue<T>
-			var bodies []string
-			for _, def := range defs {
-				bodies = append(bodies, def.Body)
-			}
-			contentToScan = strings.Join(bodies, "\n")
-		} else {
-			// Not a template file - scan the entire content
-			contentToScan = content
-		}
-
-		// Collect generic usages from the content
-		p = parser.NewParser(contentToScan)
-		p.SetFileName(path)
-		generics, err := p.FindGenerics()
-		if err != nil {
-			hasErrors = true
-			// Check if we already have an error for this file
-			found := false
-			for i, r := range results {
-				if r.OriginalPath == path && r.Error != nil {
-					// Append to existing error
-					results[i].Error = err
-					found = true
-					break
-				}
-			}
-			if !found {
-				results = append(results, FileResult{
-					OriginalPath: path,
-					Error:        err,
-				})
-			}
-			continue
-		}
-
-		for original, expr := range generics {
-			// Only track usages of our defined templates
-			if _, isTemplate := t.templates[expr.BaseType]; isTemplate {
-				t.usages[original] = expr
-			}
-		}
-	}
+	hasErrors = t.collectUsages(files, &results) || hasErrors
 
 	// If there were errors in parsing, return now with error results
 	if hasErrors {
@@ -138,6 +70,88 @@ func (t *Transpiler) TranspileFiles(files map[string]string) ([]FileResult, erro
 	results = append(results, concreteClasses...)
 
 	return results, nil
+}
+
+// collectTemplates scans all files for generic class definitions (Phase 1)
+func (t *Transpiler) collectTemplates(files map[string]string, results *[]FileResult) bool {
+	hasErrors := false
+	for path, content := range files {
+		p := parser.NewParser(content)
+		p.SetFileName(path)
+		defs, err := p.FindGenericClassDefinitions()
+		if err != nil {
+			hasErrors = true
+			*results = append(*results, FileResult{
+				OriginalPath: path,
+				Error:        err,
+			})
+			continue
+		}
+
+		for className, def := range defs {
+			t.templates[className] = def
+			t.templatePaths[className] = path
+		}
+	}
+	return hasErrors
+}
+
+// collectUsages scans all files for generic instantiations (Phase 2)
+func (t *Transpiler) collectUsages(files map[string]string, results *[]FileResult) bool {
+	hasErrors := false
+	for path, content := range files {
+		contentToScan := t.getContentToScan(content)
+
+		p := parser.NewParser(contentToScan)
+		p.SetFileName(path)
+		generics, err := p.FindGenerics()
+		if err != nil {
+			hasErrors = true
+			t.recordError(path, err, results)
+			continue
+		}
+
+		for original, expr := range generics {
+			if _, isTemplate := t.templates[expr.BaseType]; isTemplate {
+				t.usages[original] = expr
+			}
+		}
+	}
+	return hasErrors
+}
+
+// getContentToScan determines what content to scan for generic usages
+func (t *Transpiler) getContentToScan(content string) string {
+	p := parser.NewParser(content)
+	defs, _ := p.FindGenericClassDefinitions()
+
+	if len(defs) > 0 {
+		// Template file - scan only class bodies to avoid treating
+		// "class Queue<T>" as a usage of Queue<T>
+		var bodies []string
+		for _, def := range defs {
+			bodies = append(bodies, def.Body)
+		}
+		return strings.Join(bodies, "\n")
+	}
+
+	return content
+}
+
+// recordError adds or updates an error for a file in the results
+func (t *Transpiler) recordError(path string, err error, results *[]FileResult) {
+	// Check if we already have an error for this file
+	for i, r := range *results {
+		if r.OriginalPath == path && r.Error != nil {
+			(*results)[i].Error = err
+			return
+		}
+	}
+	// No existing error, add new one
+	*results = append(*results, FileResult{
+		OriginalPath: path,
+		Error:        err,
+	})
 }
 
 // transpileFile processes a single file, replacing generic usages with concrete class names.
