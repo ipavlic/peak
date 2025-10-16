@@ -185,8 +185,8 @@ peak examples/
 peak --watch examples/
 
 # Use current directory
-peak .
-peak --watch .
+peak
+peak --watch
 ```
 
 ### Output Location
