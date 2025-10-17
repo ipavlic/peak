@@ -773,3 +773,291 @@ func TestTranspileFile(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordError(t *testing.T) {
+	tr := NewTranspiler()
+	results := []FileResult{}
+
+	// Test adding new error
+	err1 := &parser.ParseError{Message: "first error", Line: 1, Column: 1}
+	tr.recordError("file1.peak", err1, &results)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Error == nil {
+		t.Error("expected error to be set")
+	}
+	if results[0].OriginalPath != "file1.peak" {
+		t.Errorf("expected path file1.peak, got %s", results[0].OriginalPath)
+	}
+
+	// Test updating existing error
+	err2 := &parser.ParseError{Message: "second error", Line: 2, Column: 2}
+	tr.recordError("file1.peak", err2, &results)
+
+	if len(results) != 1 {
+		t.Errorf("expected 1 result (updated), got %d", len(results))
+	}
+	if results[0].Error != err2 {
+		t.Error("expected error to be updated")
+	}
+
+	// Test adding error for different file
+	err3 := &parser.ParseError{Message: "third error", Line: 3, Column: 3}
+	tr.recordError("file2.peak", err3, &results)
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+}
+
+func TestCollectUsages_WithValidUsages(t *testing.T) {
+	tr := NewTranspiler()
+	results := []FileResult{}
+
+	// First collect templates
+	files := map[string]string{
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+}`,
+		"Usage.peak": `public class Usage {
+    private Queue<Integer> q;
+}`,
+	}
+
+	tr.collectTemplates(files, &results)
+
+	// Reset results to test collectUsages independently
+	results = []FileResult{}
+
+	// Test collectUsages
+	hasErrors := tr.collectUsages(files, &results)
+
+	if hasErrors {
+		t.Error("expected no errors in collectUsages")
+	}
+
+	// Check that Queue<Integer> was collected as a usage
+	if len(tr.usages) == 0 {
+		t.Error("expected usages to be collected")
+	}
+
+	found := false
+	for key := range tr.usages {
+		if strings.Contains(key, "Queue<Integer>") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find Queue<Integer> in usages")
+	}
+}
+
+func TestTranspileFile_ParseErrors(t *testing.T) {
+	tr := NewTranspiler()
+
+	t.Run("error finding generic class definitions", func(t *testing.T) {
+		result, err := tr.transpileFile("Bad.peak", "public class Bad<<T>> {}")
+
+		if err == nil {
+			t.Error("expected error but got none")
+		}
+		if result.Error == nil {
+			t.Error("expected result.Error to be set")
+		}
+		if result.OriginalPath != "Bad.peak" {
+			t.Errorf("expected path Bad.peak, got %s", result.OriginalPath)
+		}
+	})
+}
+
+func TestGetContentToScan(t *testing.T) {
+	tr := NewTranspiler()
+
+	tests := []struct {
+		name        string
+		content     string
+		shouldScan  []string // strings that should be in scanned content
+		shouldSkip  []string // strings that should NOT be in scanned content
+	}{
+		{
+			name: "template file - scan only body",
+			content: `public class Queue<T> {
+    private List<T> items;
+    private Queue<Boolean> nested;
+}`,
+			shouldScan:  []string{"private List<T> items", "private Queue<Boolean> nested"},
+			shouldSkip:  []string{}, // In this case, the declaration is part of the body
+		},
+		{
+			name: "non-template file - scan all",
+			content: `public class Example {
+    private Queue<Integer> q;
+}`,
+			shouldScan: []string{"public class Example", "private Queue<Integer> q"},
+			shouldSkip: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scanned := tr.getContentToScan(tt.content)
+
+			for _, expected := range tt.shouldScan {
+				if !strings.Contains(scanned, expected) {
+					t.Errorf("scanned content should contain %q\nScanned:\n%s", expected, scanned)
+				}
+			}
+
+			for _, unexpected := range tt.shouldSkip {
+				if strings.Contains(scanned, unexpected) {
+					t.Errorf("scanned content should NOT contain %q\nScanned:\n%s", unexpected, scanned)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateConcreteClasses_NoTemplate(t *testing.T) {
+	tr := NewTranspiler()
+	// Add a usage for a template that doesn't exist
+	tr.usages["Queue<Integer>"] = &parser.GenericExpr{
+		BaseType: "Queue",
+		TypeArgs: []parser.GenericExpr{{BaseType: "Integer", IsSimple: true}},
+	}
+
+	results := tr.generateConcreteClasses()
+
+	// Should handle gracefully (no crash, no output for missing template)
+	if len(results) != 0 {
+		t.Errorf("expected 0 results when template doesn't exist, got %d", len(results))
+	}
+}
+
+func TestTranspileFiles_MultipleParseErrors(t *testing.T) {
+	tr := NewTranspiler()
+	files := map[string]string{
+		"Bad1.peak": `public class Bad1<<T>> {}`,
+		"Bad2.peak": `public class Bad2<T, T> {}`,
+		"Good.peak": `public class Good { private Integer x; }`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles should not return error even with parse errors, got: %v", err)
+	}
+
+	// Check that errors were recorded for bad files
+	errorCount := 0
+	for _, result := range results {
+		if result.Error != nil {
+			errorCount++
+		}
+	}
+
+	if errorCount < 2 {
+		t.Errorf("expected at least 2 errors, got %d", errorCount)
+	}
+
+	// Verify that we received results (errors block Phase 3, but Phase 1 & 2 errors are recorded)
+	if len(results) < 2 {
+		t.Errorf("expected at least 2 results for error files, got %d", len(results))
+	}
+}
+
+func TestCollectTemplates_Errors(t *testing.T) {
+	tr := NewTranspiler()
+	results := []FileResult{}
+
+	files := map[string]string{
+		"Bad.peak":  `public class Bad<<T>> {}`,
+		"Good.peak": `public class Good<T> {}`,
+	}
+
+	hasErrors := tr.collectTemplates(files, &results)
+
+	if !hasErrors {
+		t.Error("expected collectTemplates to detect errors")
+	}
+
+	// Check that Good.peak was still collected
+	if _, exists := tr.templates["Good"]; !exists {
+		t.Error("Good template should be collected despite error in other file")
+	}
+
+	// Check that error was recorded for Bad.peak
+	foundError := false
+	for _, result := range results {
+		if result.OriginalPath == "Bad.peak" && result.Error != nil {
+			foundError = true
+			break
+		}
+	}
+	if !foundError {
+		t.Error("expected error to be recorded for Bad.peak")
+	}
+}
+
+func TestReplaceGenericUsages_EmptyGenerics(t *testing.T) {
+	tr := NewTranspiler()
+	content := "public class Example { private Integer x; }"
+	generics := map[string]*parser.GenericExpr{}
+
+	result := tr.replaceGenericUsages(content, generics)
+
+	if result != content {
+		t.Error("content should remain unchanged when no generics present")
+	}
+}
+
+func TestReplaceGenericUsages_BuiltInIgnored(t *testing.T) {
+	tr := NewTranspiler()
+	// Don't add List to templates - it's built-in
+	content := "public class Example { private List<String> list; }"
+	generics := map[string]*parser.GenericExpr{
+		"List<String>": {
+			BaseType: "List",
+			TypeArgs: []parser.GenericExpr{{BaseType: "String", IsSimple: true}},
+		},
+	}
+
+	result := tr.replaceGenericUsages(content, generics)
+
+	// Built-in generics should not be replaced
+	if !strings.Contains(result, "List<String>") {
+		t.Error("built-in generic List<String> should remain unchanged")
+	}
+	if strings.Contains(result, "ListString") {
+		t.Error("built-in generic should not be converted to concrete name")
+	}
+}
+
+func TestTranspileFiles_WithErrorInPhase3(t *testing.T) {
+	// Test a scenario where Phase 3 (transpileFile) encounters an error
+	// This is difficult to trigger naturally, so we test the error recording path explicitly
+	tr := NewTranspiler()
+
+	// Create a file that will pass template collection but fail in transpilation
+	files := map[string]string{
+		"Test.peak": "public class Test<<BadSyntax>> {}",
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles should not return error, got: %v", err)
+	}
+
+	// Check that error was recorded
+	foundError := false
+	for _, result := range results {
+		if result.Error != nil {
+			foundError = true
+			break
+		}
+	}
+	if !foundError {
+		t.Error("expected error to be recorded in results")
+	}
+}

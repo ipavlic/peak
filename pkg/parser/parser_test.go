@@ -557,3 +557,282 @@ func TestIsBuiltInGeneric(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatError_WithTab(t *testing.T) {
+	// Test FormatError with tab character in source line
+	input := "hello\tworld"
+	p := NewParser(input)
+	p.SetFileName("test.peak")
+
+	err := p.createError(6, "error at tab position")
+	formatted := err.FormatError()
+
+	if !strings.Contains(formatted, "test.peak") {
+		t.Error("formatted error should contain filename")
+	}
+	if !strings.Contains(formatted, "error at tab position") {
+		t.Error("formatted error should contain error message")
+	}
+	if !strings.Contains(formatted, "^") {
+		t.Error("formatted error should contain error pointer")
+	}
+}
+
+func TestParseGeneric_Errors(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		baseType    string
+		expectError string
+	}{
+		{
+			name:        "missing closing bracket",
+			input:       "<Integer",
+			baseType:    "Foo",
+			expectError: "expected '>' or ','",
+		},
+		{
+			name:        "invalid character after type arg",
+			input:       "<Integer!>",
+			baseType:    "Foo",
+			expectError: "expected '>' or ','",
+		},
+		{
+			name:        "empty type argument",
+			input:       "<>",
+			baseType:    "Foo",
+			expectError: "expected type name",
+		},
+		{
+			name:        "missing type after comma",
+			input:       "<Integer,>",
+			baseType:    "Foo",
+			expectError: "expected type name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			_, err := p.ParseGeneric(tt.baseType)
+			if err == nil {
+				t.Error("expected error but got none")
+				return
+			}
+			if tt.expectError != "" && !strings.Contains(err.Error(), tt.expectError) {
+				t.Errorf("expected error containing %q, got %q", tt.expectError, err.Error())
+			}
+		})
+	}
+}
+
+func TestFindGenerics_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{
+			name:     "less than with equals",
+			input:    "if (x <= 5) { }",
+			expected: 0,
+		},
+		{
+			name:     "less than with space",
+			input:    "if (x < 5) { }",
+			expected: 0,
+		},
+		{
+			name:     "invalid generic that fails to parse",
+			input:    "Foo<",
+			expected: 0,
+		},
+		{
+			name:     "underscore in identifier",
+			input:    "My_Class<Integer> x;",
+			expected: 1,
+		},
+		{
+			name:     "multiple occurrences of same generic",
+			input:    "Foo<Integer> a; Foo<Integer> b;",
+			expected: 1, // Should only collect once
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			generics, err := p.FindGenerics()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(generics) != tt.expected {
+				t.Errorf("expected %d generics, got %d", tt.expected, len(generics))
+			}
+		})
+	}
+}
+
+func TestMatchKeyword_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		keyword  string
+		pos      int
+		expected bool
+	}{
+		{
+			name:     "at start of input",
+			input:    "class Foo",
+			keyword:  "class",
+			pos:      0,
+			expected: true,
+		},
+		{
+			name:     "at end of input",
+			input:    "public class",
+			keyword:  "class",
+			pos:      7,
+			expected: true,
+		},
+		{
+			name:     "not at word boundary (prefix)",
+			input:    "myclass Foo",
+			keyword:  "class",
+			pos:      2,
+			expected: false,
+		},
+		{
+			name:     "not at word boundary (suffix)",
+			input:    "class2",
+			keyword:  "class",
+			pos:      0,
+			expected: false,
+		},
+		{
+			name:     "keyword too long for remaining input",
+			input:    "cl",
+			keyword:  "class",
+			pos:      0,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			p.pos = tt.pos
+			result := p.matchKeyword(tt.keyword)
+			if result != tt.expected {
+				t.Errorf("matchKeyword(%q) at pos %d = %v, expected %v", tt.keyword, tt.pos, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseTypeParameters_AdditionalErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError string
+	}{
+		{
+			name:        "missing closing bracket after param",
+			input:       "class Foo<T",
+			expectError: "expected '>' or ','",
+		},
+		{
+			name:        "empty after comma",
+			input:       "class Foo<T,",
+			expectError: "expected type parameter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			// Position parser at the '<'
+			p.pos = strings.Index(tt.input, "<")
+			_, err := p.parseTypeParameters()
+			if err == nil {
+				t.Error("expected error but got none")
+				return
+			}
+			if !strings.Contains(err.Error(), tt.expectError) {
+				t.Errorf("expected error containing %q, got %q", tt.expectError, err.Error())
+			}
+		})
+	}
+}
+
+func TestExtractClassBody_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedBody string
+	}{
+		{
+			name:         "nested braces",
+			input:        "{ public void method() { if (true) { } } }",
+			expectedBody: "{ public void method() { if (true) { } } }",
+		},
+		{
+			name:         "no opening brace found",
+			input:        "no braces here",
+			expectedBody: "",
+		},
+		{
+			name:         "empty body",
+			input:        "{}",
+			expectedBody: "{}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			body, _ := p.extractClassBody()
+			if body != tt.expectedBody {
+				t.Errorf("expected body %q, got %q", tt.expectedBody, body)
+			}
+		})
+	}
+}
+
+func TestParseTypeArgument_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+	}{
+		{
+			name:        "whitespace before type",
+			input:       "   Integer>",
+			expectError: false,
+		},
+		{
+			name:        "empty input",
+			input:       "",
+			expectError: true,
+		},
+		{
+			name:        "only whitespace",
+			input:       "   ",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			_, err := p.parseTypeArgument()
+			if tt.expectError && err == nil {
+				t.Error("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
