@@ -836,3 +836,150 @@ func TestParseTypeArgument_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestSkipComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected byte // expected character after skipping
+	}{
+		{
+			name:     "single line comment",
+			input:    "// this is a comment\ncode",
+			expected: 'c',
+		},
+		{
+			name:     "multi-line comment",
+			input:    "/* this is\n a multi-line\n comment */code",
+			expected: 'c',
+		},
+		{
+			name:     "no comment",
+			input:    "code",
+			expected: 'c',
+		},
+		{
+			name:     "multiple single-line comments",
+			input:    "// comment 1\n// comment 2\ncode",
+			expected: 'c',
+		},
+		{
+			name:     "comment at end",
+			input:    "// comment at end",
+			expected: 0, // EOF
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			p.skipComments()
+			if p.current() != tt.expected {
+				t.Errorf("expected '%c', got '%c'", tt.expected, p.current())
+			}
+		})
+	}
+}
+
+func TestFindGenerics_WithComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int // expected number of generics found
+	}{
+		{
+			name: "single-line comment with generic",
+			input: `public class Test {
+    // This is a Queue<Integer> in a comment
+    private Queue<String> realQueue;
+}`,
+			expected: 1, // Should only find Queue<String>, not the one in comment
+		},
+		{
+			name: "multi-line comment with generic",
+			input: `public class Test {
+    /* Here's an example:
+       Queue<Integer> myQueue;
+    */
+    private Queue<String> realQueue;
+}`,
+			expected: 1, // Should only find Queue<String>
+		},
+		{
+			name: "mixed comments",
+			input: `public class Test {
+    // Queue<Integer> commented
+    private Queue<String> field1; // Queue<Boolean> also commented
+    /* Queue<Double> in
+       multi-line comment */
+    private Queue<Long> field2;
+}`,
+			expected: 2, // Should find Queue<String> and Queue<Long>
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			generics, err := p.FindGenerics()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(generics) != tt.expected {
+				t.Errorf("expected %d generics, got %d", tt.expected, len(generics))
+				for key := range generics {
+					t.Logf("Found: %s", key)
+				}
+			}
+		})
+	}
+}
+
+func TestFindGenericClassDefinitions_WithComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int // expected number of class definitions found
+	}{
+		{
+			name: "commented class definition",
+			input: `
+// class Queue<T> { }
+public class RealQueue<T> {
+    private List<T> items;
+}`,
+			expected: 1, // Should only find RealQueue<T>
+		},
+		{
+			name: "multi-line comment with class definition",
+			input: `
+/*
+public class Queue<T> {
+    private List<T> items;
+}
+*/
+public class RealQueue<T> {
+    private List<T> items;
+}`,
+			expected: 1, // Should only find RealQueue<T>
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			defs, err := p.FindGenericClassDefinitions()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(defs) != tt.expected {
+				t.Errorf("expected %d class definitions, got %d", tt.expected, len(defs))
+				for key := range defs {
+					t.Logf("Found: %s", key)
+				}
+			}
+		})
+	}
+}

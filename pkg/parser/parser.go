@@ -174,6 +174,54 @@ func (p *Parser) skipWhitespace() {
 	}
 }
 
+// skipComments skips both single-line (//) and multi-line (/* */) comments
+func (p *Parser) skipComments() {
+	for p.pos < len(p.input) {
+		// Check for single-line comment
+		if p.current() == '/' && p.peek(1) == '/' {
+			// Skip until end of line
+			p.advance(2)
+			for p.pos < len(p.input) && p.current() != '\n' {
+				p.advance(1)
+			}
+			if p.pos < len(p.input) && p.current() == '\n' {
+				p.advance(1)
+			}
+			continue
+		}
+
+		// Check for multi-line comment
+		if p.current() == '/' && p.peek(1) == '*' {
+			// Skip until we find */
+			p.advance(2)
+			for p.pos < len(p.input)-1 {
+				if p.current() == '*' && p.peek(1) == '/' {
+					p.advance(2)
+					break
+				}
+				p.advance(1)
+			}
+			continue
+		}
+
+		// No more comments
+		break
+	}
+}
+
+// skipWhitespaceAndComments skips both whitespace and comments
+func (p *Parser) skipWhitespaceAndComments() {
+	for {
+		start := p.pos
+		p.skipWhitespace()
+		p.skipComments()
+		// If position didn't change, we're done
+		if p.pos == start {
+			break
+		}
+	}
+}
+
 // parseIdentifier parses an identifier (alphanumeric + underscore)
 func (p *Parser) parseIdentifier() string {
 	start := p.pos
@@ -264,10 +312,19 @@ func (p *Parser) parseTypeArgument() (*GenericExpr, error) {
 // FindGenerics scans through the input and finds all generic expressions.
 // It returns a map from original expression text to parsed GenericExpr.
 // Built-in Apex generic types (List, Set, Map) are excluded.
+// Comments (both // and /* */) are skipped.
 func (p *Parser) FindGenerics() (map[string]*GenericExpr, error) {
 	generics := make(map[string]*GenericExpr)
 
 	for p.pos < len(p.input) {
+		// Skip whitespace and comments
+		p.skipWhitespaceAndComments()
+
+		// Check if we've reached the end
+		if p.pos >= len(p.input) {
+			break
+		}
+
 		// Skip until we find an identifier
 		if !unicode.IsLetter(rune(p.current())) && p.current() != '_' {
 			p.advance(1)
@@ -368,6 +425,7 @@ func (g *GenericExpr) String() string {
 // FindGenericClassDefinitions scans for generic class definitions.
 // It finds patterns like "class Queue<T>" or "class Dict<K, V>".
 // Returns a map from class name to GenericClassDef.
+// Comments (both // and /* */) are skipped.
 func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, error) {
 	definitions := make(map[string]*GenericClassDef)
 
@@ -376,6 +434,14 @@ func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, err
 	p.pos = 0
 
 	for p.pos < len(p.input) {
+		// Skip whitespace and comments
+		p.skipWhitespaceAndComments()
+
+		// Check if we've reached the end
+		if p.pos >= len(p.input) {
+			break
+		}
+
 		// Look for "class" keyword
 		if !p.matchKeyword("class") {
 			p.advance(1)

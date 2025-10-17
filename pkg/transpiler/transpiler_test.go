@@ -1061,3 +1061,50 @@ func TestTranspileFiles_WithErrorInPhase3(t *testing.T) {
 		t.Error("expected error to be recorded in results")
 	}
 }
+
+func TestReplaceGenericUsages_PreservesComments(t *testing.T) {
+	tr := NewTranspiler()
+	tr.templates["Queue"] = &parser.GenericClassDef{
+		ClassName:  "Queue",
+		TypeParams: []string{"T"},
+		Body:       "{}",
+	}
+
+	content := `public class Test {
+    // Comment with Queue<Integer>
+    private Queue<String> field1;
+    /* Multi-line
+       Queue<Boolean> here
+    */
+    private Queue<Long> field2;
+}`
+
+	generics := map[string]*parser.GenericExpr{
+		"Queue<String>": {
+			BaseType: "Queue",
+			TypeArgs: []parser.GenericExpr{{BaseType: "String", IsSimple: true}},
+		},
+		"Queue<Long>": {
+			BaseType: "Queue",
+			TypeArgs: []parser.GenericExpr{{BaseType: "Long", IsSimple: true}},
+		},
+	}
+
+	result := tr.replaceGenericUsages(content, generics)
+
+	// Should replace actual usages
+	if !strings.Contains(result, "QueueString field1") {
+		t.Error("should replace Queue<String> with QueueString outside comments")
+	}
+	if !strings.Contains(result, "QueueLong field2") {
+		t.Error("should replace Queue<Long> with QueueLong outside comments")
+	}
+
+	// Should NOT replace in comments
+	if !strings.Contains(result, "// Comment with Queue<Integer>") {
+		t.Error("should preserve Queue<Integer> in single-line comment")
+	}
+	if !strings.Contains(result, "Queue<Boolean> here") {
+		t.Error("should preserve Queue<Boolean> in multi-line comment")
+	}
+}

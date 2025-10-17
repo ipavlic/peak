@@ -193,26 +193,86 @@ func (t *Transpiler) transpileFile(path, content string) (FileResult, error) {
 
 // replaceGenericUsages replaces all generic template usages in content with concrete class names.
 // It sorts generics by length (longest first) to handle nested generics correctly.
+// Comments are preserved and not modified.
 func (t *Transpiler) replaceGenericUsages(content string, generics map[string]*parser.GenericExpr) string {
-	// Extract and sort keys by length (longest first) to handle nested generics
-	sortedKeys := make([]string, 0, len(generics))
-	for key := range generics {
+	// Build replacement map
+	replacements := make(map[string]string)
+	for original, expr := range generics {
+		// Only replace if it's a usage of a known template
+		if _, isTemplate := t.templates[expr.BaseType]; isTemplate {
+			concrete := parser.GenerateConcreteClassName(expr)
+			replacements[original] = concrete
+		}
+	}
+
+	if len(replacements) == 0 {
+		return content
+	}
+
+	// Sort keys by length (longest first) to handle nested generics
+	sortedKeys := make([]string, 0, len(replacements))
+	for key := range replacements {
 		sortedKeys = append(sortedKeys, key)
 	}
 	sort.Slice(sortedKeys, func(i, j int) bool {
 		return len(sortedKeys[i]) > len(sortedKeys[j])
 	})
 
-	output := content
-	for _, original := range sortedKeys {
-		expr := generics[original]
-		// Only replace if it's a usage of a known template
-		if _, isTemplate := t.templates[expr.BaseType]; isTemplate {
-			concrete := parser.GenerateConcreteClassName(expr)
-			output = strings.ReplaceAll(output, original, concrete)
+	// Replace while skipping comments
+	var result strings.Builder
+	result.Grow(len(content))
+
+	i := 0
+	for i < len(content) {
+		// Check for single-line comment
+		if i < len(content)-1 && content[i] == '/' && content[i+1] == '/' {
+			// Copy the entire comment line as-is
+			start := i
+			for i < len(content) && content[i] != '\n' {
+				i++
+			}
+			if i < len(content) {
+				i++ // include the newline
+			}
+			result.WriteString(content[start:i])
+			continue
+		}
+
+		// Check for multi-line comment
+		if i < len(content)-1 && content[i] == '/' && content[i+1] == '*' {
+			// Copy the entire comment as-is
+			start := i
+			i += 2
+			for i < len(content)-1 {
+				if content[i] == '*' && content[i+1] == '/' {
+					i += 2
+					break
+				}
+				i++
+			}
+			result.WriteString(content[start:i])
+			continue
+		}
+
+		// Try to match any generic pattern at current position
+		matched := false
+		for _, original := range sortedKeys {
+			if i+len(original) <= len(content) && content[i:i+len(original)] == original {
+				// Found a match - replace it
+				result.WriteString(replacements[original])
+				i += len(original)
+				matched = true
+				break
+			}
+		}
+
+		if !matched {
+			result.WriteByte(content[i])
+			i++
 		}
 	}
-	return output
+
+	return result.String()
 }
 
 // generateConcreteClasses creates concrete class files from templates by instantiating
