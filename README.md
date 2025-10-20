@@ -46,11 +46,17 @@ go install github.com/ipavlic/peak/cmd/peak@latest
 ### Basic Usage
 
 ```bash
+# Show help
+peak --help
+
 # Transpile all .peak files in a directory
 peak examples/
 
 # Watch mode - automatically recompile on changes
 peak --watch examples/
+
+# Specify output directory
+peak --out-dir build/ src/
 ```
 
 ## How It Works
@@ -131,7 +137,56 @@ Type-specific classes generated from templates:
 
 These `.cls` files are ready to deploy to Salesforce!
 
-## Advanced Features
+## CLI Reference
+
+### Commands
+
+```bash
+# Show help
+peak --help
+peak -h
+
+# Transpile directory
+peak [directory]              # Transpile all .peak files (default: current directory)
+peak examples/                # Transpile examples/ directory
+
+# Watch mode
+peak --watch [directory]      # Auto-recompile on file changes
+peak -w                       # Short form
+
+# Custom output directory
+peak --out-dir <dir>          # Override output location
+peak -o build/                # Short form
+```
+
+### Configuration
+
+**Output Location**
+
+By default, generated `.cls` files are placed alongside their source `.peak` files:
+
+```
+examples/
+├── Queue.peak              # Template (not compiled)
+├── QueueExample.peak       # Usage file
+├── QueueExample.cls        # ✓ Generated
+├── QueueInteger.cls        # ✓ Generated
+└── QueueString.cls         # ✓ Generated
+```
+
+**Config File** (optional)
+
+Create `peakconfig.json` in your source directory to customize output:
+
+```json
+{
+  "outDir": "build/classes"
+}
+```
+
+The `--out-dir` flag overrides the config file.
+
+## Features
 
 ### Multiple Type Parameters
 
@@ -173,40 +228,9 @@ Generates concrete classes like `QueueListInteger.cls` and `DictStringQueueAccou
 
 Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes.
 
-## CLI Reference
+### Type Parameter Rules
 
-### Basic Commands
-
-```bash
-# Transpile all .peak files in a directory
-peak examples/
-
-# Watch mode - auto-recompile on file changes
-peak --watch examples/
-
-# Use current directory
-peak
-peak --watch
-```
-
-### Output Location
-
-Generated `.cls` files are placed in the same directory as their source `.peak` files. This makes it easy to organize your code and deploy to Salesforce.
-
-```
-examples/
-├── Queue.peak              # Template (not compiled)
-├── QueueExample.peak       # Usage file
-├── QueueExample.cls        # ✓ Generated
-├── QueueInteger.cls        # ✓ Generated
-└── QueueString.cls         # ✓ Generated
-```
-
-## Syntax Rules
-
-### Type Parameters Must Be Single Letters
-
-Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.).
+Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.):
 
 ```apex
 ✓ class Queue<T>              // Good - single letter
@@ -224,7 +248,7 @@ Queue<List<Integer>>         // Nested generics
 Dict<Integer, Queue<String>> // Complex nesting
 ```
 
-### Common Errors
+### Error Handling
 
 Peak provides clear error messages with line and column information:
 
@@ -296,20 +320,6 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 ## License
 
 MIT License - see LICENSE file for details.
-
-## How Peak Works
-
-Peak uses a minimal intervention approach:
-
-1. **Only transforms generic syntax** - Everything else passes through unchanged
-2. **No full language parsing** - Doesn't need to understand all of Apex
-3. **Four-phase compilation**:
-   - Collect template definitions (`class Queue<T>`)
-   - Find template usages (`Queue<Integer>`)
-   - Replace usages with concrete names (`QueueInteger`)
-   - Generate concrete classes from templates
-
-This design ensures Peak works with any Apex version, present or future.
 
 ---
 

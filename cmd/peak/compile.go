@@ -21,6 +21,15 @@ const (
 	filePermission = 0o644   // Standard file permission for generated .cls files
 	peakExtension  = ".peak" // Peak source file extension
 	apexExtension  = ".cls"  // Apex output file extension
+
+	// ANSI color codes (matching help output style)
+	blue     = "\033[34m"
+	boldBlue = "\033[1;34m"
+	green    = "\033[32m"
+	yellow   = "\033[33m"
+	red      = "\033[31m"
+	gray     = "\033[90m"
+	reset    = "\033[0m"
 )
 
 // compileDirectory compiles all .peak files in the specified directory.
@@ -80,14 +89,17 @@ func compileDirectory(dir string, outDir string) error {
 			if parseErr, ok := result.Error.(*parser.ParseError); ok {
 				fmt.Fprint(os.Stderr, parseErr.FormatError())
 			} else {
-				fmt.Fprintf(os.Stderr, "  ERROR in %s: %v\n", result.OriginalPath, result.Error)
+				fmt.Fprintf(os.Stderr, "  %sERROR%s in %s%s%s: %v\n",
+					red, reset,
+					blue, result.OriginalPath, reset,
+					result.Error)
 			}
 			continue
 		}
 
 		if result.IsTemplate {
 			skippedTemplates++
-			fmt.Fprintf(os.Stderr, "Skipped template: %s\n", result.OriginalPath)
+			fmt.Fprintf(os.Stderr, "%sSkipped template:%s %s\n", yellow, reset, result.OriginalPath)
 			continue
 		}
 
@@ -103,9 +115,14 @@ func compileDirectory(dir string, outDir string) error {
 
 		generatedFiles++
 		if result.OriginalPath != "" {
-			fmt.Fprintf(os.Stderr, "Generated: %s -> %s\n", result.OriginalPath, result.OutputPath)
+			fmt.Fprintf(os.Stderr, "%sGenerated:%s %s%s%s -> %s%s%s\n",
+				green, reset,
+				gray, result.OriginalPath, reset,
+				blue, result.OutputPath, reset)
 		} else {
-			fmt.Fprintf(os.Stderr, "Generated concrete class: %s\n", result.OutputPath)
+			fmt.Fprintf(os.Stderr, "%sGenerated concrete class:%s %s%s%s\n",
+				green, reset,
+				blue, result.OutputPath, reset)
 		}
 	}
 
@@ -114,13 +131,20 @@ func compileDirectory(dir string, outDir string) error {
 	fmt.Fprintf(os.Stderr, "\n")
 
 	if errorCount > 0 {
-		fmt.Fprintf(os.Stderr, "✗ Compiled %d file(s) (skipped %d template(s)) with %d error(s) in %v\n",
-			generatedFiles, skippedTemplates, errorCount, elapsed.Round(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "%s✗%s Compiled %s%d%s file(s) (skipped %s%d%s template(s)) with %s%d error(s)%s in %s%v%s\n",
+			red, reset,
+			boldBlue, generatedFiles, reset,
+			yellow, skippedTemplates, reset,
+			red, errorCount, reset,
+			gray, elapsed.Round(time.Millisecond), reset)
 		return fmt.Errorf("compilation had %d error(s)", errorCount)
 	}
 
-	fmt.Fprintf(os.Stderr, "✓ Compiled %d file(s) (skipped %d template(s)) in %v\n",
-		generatedFiles, skippedTemplates, elapsed.Round(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "%s✓%s Compiled %s%d%s file(s) (skipped %s%d%s template(s)) in %s%v%s\n",
+		green, reset,
+		boldBlue, generatedFiles, reset,
+		yellow, skippedTemplates, reset,
+		gray, elapsed.Round(time.Millisecond), reset)
 	return nil
 }
 
