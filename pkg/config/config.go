@@ -26,6 +26,10 @@ type Instantiate struct {
 
 // CompilerOptions contains compiler-specific configuration options
 type CompilerOptions struct {
+	// RootDir is the root directory for preserving directory structure
+	// When set, output paths preserve structure relative to this root
+	RootDir string `json:"rootDir,omitempty"`
+
 	// OutDir is the output directory relative to the source directory
 	// Empty string means co-located with source (default behavior)
 	OutDir string `json:"outDir,omitempty"`
@@ -44,6 +48,7 @@ type ConfigFile struct {
 
 // Config represents the runtime configuration for the transpiler
 type Config struct {
+	RootDir     string       // Root directory for structure preservation (absolute path, empty = use SourceDir)
 	SourceDir   string       // Directory to compile (from CLI or current dir)
 	OutDir      string       // Output directory (absolute path, empty = co-located)
 	Watch       bool         // Watch mode enabled
@@ -53,6 +58,7 @@ type Config struct {
 
 // CLIFlags represents command-line flags
 type CLIFlags struct {
+	RootDir string
 	OutDir  string
 	Watch   bool
 	Verbose bool
@@ -69,6 +75,7 @@ func LoadConfig(sourceDir string, flags CLIFlags) (*Config, error) {
 
 	// Start with defaults (backwards compatible behavior)
 	config := &Config{
+		RootDir:   "",    // Empty = use SourceDir for relative paths
 		SourceDir: absSourceDir,
 		OutDir:    "",    // Empty = co-located with source
 		Watch:     false,
@@ -83,6 +90,9 @@ func LoadConfig(sourceDir string, flags CLIFlags) (*Config, error) {
 	}
 
 	// Override with CLI flags (highest priority)
+	if flags.RootDir != "" {
+		config.RootDir = flags.RootDir
+	}
 	if flags.OutDir != "" {
 		config.OutDir = flags.OutDir
 	}
@@ -91,6 +101,15 @@ func LoadConfig(sourceDir string, flags CLIFlags) (*Config, error) {
 	}
 	if flags.Verbose {
 		config.Verbose = true
+	}
+
+	// Normalize root directory to absolute path
+	if config.RootDir != "" {
+		// If RootDir is relative, make it relative to source directory
+		if !filepath.IsAbs(config.RootDir) {
+			config.RootDir = filepath.Join(absSourceDir, config.RootDir)
+		}
+		config.RootDir = filepath.Clean(config.RootDir)
 	}
 
 	// Normalize output directory to absolute path
@@ -129,6 +148,9 @@ func loadConfigFile(path string, config *Config) error {
 
 	// Apply compiler options to config
 	opts := configFile.CompilerOptions
+	if opts.RootDir != "" {
+		config.RootDir = opts.RootDir
+	}
 	if opts.OutDir != "" {
 		config.OutDir = opts.OutDir
 	}
@@ -151,8 +173,15 @@ func (c *Config) ResolveOutputPath(sourcePath string, outputExtension string) (s
 		return filepath.Join(dir, name+outputExtension), nil
 	}
 
-	// With output directory configured, preserve directory structure relative to source
-	relPath, err := filepath.Rel(c.SourceDir, sourcePath)
+	// Determine the base directory for relative path calculation
+	// If RootDir is set, use it; otherwise use SourceDir (backwards compatible)
+	baseDir := c.SourceDir
+	if c.RootDir != "" {
+		baseDir = c.RootDir
+	}
+
+	// With output directory configured, preserve directory structure relative to base
+	relPath, err := filepath.Rel(baseDir, sourcePath)
 	if err != nil {
 		// If we can't get relative path, fall back to flat output
 		return filepath.Join(c.OutDir, name+outputExtension), nil

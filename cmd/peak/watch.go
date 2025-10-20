@@ -22,7 +22,7 @@ const (
 // It performs an initial compilation, then watches for .peak file changes
 // and recompiles automatically with a 500ms debounce delay.
 // Gracefully handles Ctrl+C (SIGINT) and SIGTERM signals.
-func runWatch(dir string, outDir string) error {
+func runWatch(dir string, rootDir string, outDir string) error {
 	if err := validateDirectory(dir); err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func runWatch(dir string, outDir string) error {
 	fmt.Fprintf(os.Stderr, "Press Ctrl+C to stop\n\n")
 
 	// Initial compilation
-	if err := compileDirectory(dir, outDir); err != nil {
+	if err := compileDirectory(dir, rootDir, outDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Initial compilation failed: %v\n", err)
 	}
 
@@ -42,7 +42,7 @@ func runWatch(dir string, outDir string) error {
 	defer watcher.Close()
 	defer cancel()
 
-	return watchLoop(ctx, watcher, dir, outDir)
+	return watchLoop(ctx, watcher, dir, rootDir, outDir)
 }
 
 // validateDirectory checks if the directory exists
@@ -81,7 +81,7 @@ func setupWatcher(dir string) (*fsnotify.Watcher, context.Context, context.Cance
 }
 
 // watchLoop runs the main event loop for file watching
-func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, dir string, outDir string) error {
+func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, dir string, rootDir string, outDir string) error {
 	var debounceTimer *time.Timer
 
 	for {
@@ -96,7 +96,7 @@ func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, dir string, outDi
 			if !ok {
 				return nil
 			}
-			debounceTimer = handleFileEvent(ctx, event, dir, outDir, debounceTimer)
+			debounceTimer = handleFileEvent(ctx, event, dir, rootDir, outDir, debounceTimer)
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -108,7 +108,7 @@ func watchLoop(ctx context.Context, watcher *fsnotify.Watcher, dir string, outDi
 }
 
 // handleFileEvent processes file system events and triggers recompilation
-func handleFileEvent(ctx context.Context, event fsnotify.Event, dir string, outDir string, debounceTimer *time.Timer) *time.Timer {
+func handleFileEvent(ctx context.Context, event fsnotify.Event, dir string, rootDir string, outDir string, debounceTimer *time.Timer) *time.Timer {
 	// Only respond to .peak file changes
 	if !strings.HasSuffix(event.Name, peakExtension) {
 		return debounceTimer
@@ -131,7 +131,7 @@ func handleFileEvent(ctx context.Context, event fsnotify.Event, dir string, outD
 		default:
 			fmt.Fprintf(os.Stderr, "\n[%s] Change detected: %s\n",
 				time.Now().Format(timeFormat), filepath.Base(event.Name))
-			if err := compileDirectory(dir, outDir); err != nil {
+			if err := compileDirectory(dir, rootDir, outDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 			}
 		}

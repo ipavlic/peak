@@ -13,8 +13,8 @@ import (
 )
 
 // runFolder compiles all .peak files in the specified directory.
-func runFolder(dir string, outDir string) error {
-	return compileDirectory(dir, outDir)
+func runFolder(dir string, rootDir string, outDir string) error {
+	return compileDirectory(dir, rootDir, outDir)
 }
 
 const (
@@ -33,12 +33,13 @@ const (
 )
 
 // compileDirectory compiles all .peak files in the specified directory.
-func compileDirectory(dir string, outDir string) error {
+func compileDirectory(dir string, rootDir string, outDir string) error {
 	startTime := time.Now()
 
 	// Load configuration
 	cfg, err := config.LoadConfig(dir, config.CLIFlags{
-		OutDir: outDir,
+		RootDir: rootDir,
+		OutDir:  outDir,
 	})
 	if err != nil {
 		return fmt.Errorf("error loading configuration: %w", err)

@@ -18,10 +18,11 @@ import (
 func main() {
 	args := os.Args[1:]
 	watchMode := false
+	rootDir := ""
 	outDir := ""
 	dir := "."
 
-	// Parse arguments: [directory] [--watch] [--out-dir <dir>] [--help]
+	// Parse arguments: [directory] [--watch] [--root-dir <dir>] [--out-dir <dir>] [--help]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--help" || arg == "-h" {
@@ -29,6 +30,14 @@ func main() {
 			os.Exit(0)
 		} else if arg == "--watch" || arg == "-w" {
 			watchMode = true
+		} else if arg == "--root-dir" || arg == "-r" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a directory argument\n\n", arg)
+				printUsage()
+				os.Exit(1)
+			}
+			i++
+			rootDir = args[i]
 		} else if arg == "--out-dir" || arg == "-o" {
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "Error: %s requires a directory argument\n\n", arg)
@@ -57,9 +66,9 @@ func main() {
 	// Run in watch or compile mode
 	var err error
 	if watchMode {
-		err = runWatch(dir, outDir)
+		err = runWatch(dir, rootDir, outDir)
 	} else {
-		err = runFolder(dir, outDir)
+		err = runFolder(dir, rootDir, outDir)
 	}
 
 	if err != nil {
@@ -81,15 +90,17 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sUSAGE%s\n", boldBlue, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s [directory] [options]\n\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "%sOPTIONS%s\n", boldBlue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--help, -h%s               Display this help message\n", blue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--watch, -w%s              Watch for changes and recompile\n", blue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--out-dir, -o%s <dir>      Output directory (overrides config file)\n\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--help, -h%s                 Display this help message\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--watch, -w%s                Watch for changes and recompile\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--root-dir, -r%s <dir>       Root directory for preserving structure (overrides config)\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--out-dir, -o%s <dir>        Output directory (overrides config file)\n\n", blue, reset)
 	fmt.Fprintf(os.Stderr, "%sEXAMPLES%s\n", boldBlue, reset)
-	fmt.Fprintf(os.Stderr, "  %s$ %speak%s                                # Compile current directory\n", green, reset, reset)
-	fmt.Fprintf(os.Stderr, "  %s$ %speak%s examples/                      # Compile specific directory\n", green, reset, reset)
-	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch                        # Watch current directory\n", green, reset, reset)
-	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --out-dir build/ src/          # Output to build/\n", green, reset, reset)
-	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch --out-dir dist/        # Watch and output to dist/\n\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s                                        # Compile current directory\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s examples/                              # Compile specific directory\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch                                # Watch current directory\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --out-dir build/ src/                  # Output to build/\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --root-dir . --out-dir build/ src/     # Preserve structure from root\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch --out-dir dist/                # Watch and output to dist/\n\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "%sCONFIGURATION%s\n", boldBlue, reset)
 	fmt.Fprintf(os.Stderr, "  Config file: peakconfig.json in source directory\n")
 	fmt.Fprintf(os.Stderr, "  Default: Output .cls files co-located with source .peak files\n")
