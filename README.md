@@ -186,7 +186,18 @@ Create `peakconfig.json` in your source directory to customize behavior:
       "Queue<Boolean>",
       "Optional<Double>",
       "Dict<String, Integer>"
-    ]
+    ],
+    "instantiateSpec": {
+      "classes": {
+        "Queue": ["Integer", "String"],
+        "Optional": ["Double", "Decimal"]
+      },
+      "methods": {
+        "Repository.get": ["Account", "Contact", "String"],
+        "Repository.put": ["Account", "Contact"],
+        "Repository.getOrDefault": ["String", "Integer"]
+      }
+    }
   }
 }
 ```
@@ -195,6 +206,10 @@ Create `peakconfig.json` in your source directory to customize behavior:
 
 - `outDir` - Output directory for generated files (can be overridden by `--out-dir` flag)
 - `instantiate` - List of generic instantiations to always generate, even if not used in code
+- `instantiateSpec` - Structured instantiation for both classes and methods:
+  - `classes` - Map of template names to type arguments (e.g., `"Queue": ["Integer", "String"]`)
+  - `methods` - Map of method keys to type arguments (e.g., `"ClassName.methodName": ["String", "Decimal"]`)
+    - For methods with multiple type parameters, use comma-separated types (e.g., `"String,String"` for `<K,V>` with both as String)
 
 ## Features
 
@@ -249,6 +264,76 @@ Dict<String, Queue<Account>> accountQueues = new Dict<String, Queue<Account>>();
 
 Generates concrete classes like `QueueListInteger.cls` and `DictStringQueueAccount.cls`.
 
+### Generic Methods
+
+Peak supports generic methods with type parameters, allowing you to create reusable methods that work with any type:
+
+```apex
+// Repository.peak - A generic cache/repository
+public class Repository {
+    private Map<String, Object> cache;
+
+    public Repository() {
+        this.cache = new Map<String, Object>();
+    }
+
+    // Generic method to get a cached value
+    public <T> T get(String key) {
+        return (T) cache.get(key);
+    }
+
+    // Generic method to store a value
+    public <T> void put(String key, T value) {
+        cache.put(key, value);
+    }
+
+    // Generic method to get with default value
+    public <T> T getOrDefault(String key, T defaultValue) {
+        if (cache.containsKey(key)) {
+            return (T) cache.get(key);
+        }
+        return defaultValue;
+    }
+}
+```
+
+**Generated Concrete Methods**
+
+Configure which concrete methods to generate using `instantiateSpec` in `peakconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "instantiateSpec": {
+      "methods": {
+        "Repository.get": ["Account", "Contact", "String"],
+        "Repository.put": ["Account", "Contact"],
+        "Repository.getOrDefault": ["String", "Integer"]
+      }
+    }
+  }
+}
+```
+
+This generates concrete methods inserted into the same class:
+
+```apex
+// Generated concrete methods
+public Account getAccount(String key) { ... }
+public Contact getContact(String key) { ... }
+public String getString(String key) { ... }
+
+public void putAccount(String key, Account value) { ... }
+public void putContact(String key, Contact value) { ... }
+
+public String getOrDefaultString(String key, String defaultValue) { ... }
+public Integer getOrDefaultInteger(String key, Integer defaultValue) { ... }
+```
+
+**Method Naming Convention:**
+- Single type parameter: `methodName` + type (e.g., `getString`)
+- Multiple type parameters: `methodName` + all types concatenated (e.g., `transformStringString`)
+
 ### Valid Generic Expressions
 
 ```apex
@@ -283,6 +368,7 @@ The `examples/` directory contains complete working demonstrations:
 - **`NestedGenericsExample.peak`** - Nested types like `Queue<List<Integer>>`
 - **`MultiParametersExample.peak`** - Multiple instantiations of `Dict<K, V>`
 - **`ComplexExample.peak`** - Advanced patterns like `Dict<String, Queue<Integer>>`
+- **`Repository.peak`** - Generic methods with `get<T>`, `put<T>`, and `getOrDefault<T>`
 
 Run `peak examples/` to see the transpiler in action!
 

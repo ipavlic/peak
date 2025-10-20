@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ipavlic/peak/pkg/config"
 	"github.com/ipavlic/peak/pkg/parser"
 )
 
@@ -1106,5 +1107,602 @@ func TestReplaceGenericUsages_PreservesComments(t *testing.T) {
 	}
 	if !strings.Contains(result, "Queue<Boolean> here") {
 		t.Error("should preserve Queue<Boolean> in multi-line comment")
+	}
+}
+
+func TestSetInstantiations(t *testing.T) {
+	tr := NewTranspiler(nil)
+	instantiations := []string{"Queue<Boolean>", "Optional<Double>"}
+
+	tr.SetInstantiations(instantiations)
+
+	if len(tr.instantiations) != 2 {
+		t.Errorf("expected 2 instantiations, got %d", len(tr.instantiations))
+	}
+	if tr.instantiations[0] != "Queue<Boolean>" {
+		t.Errorf("expected first instantiation to be Queue<Boolean>, got %s", tr.instantiations[0])
+	}
+}
+
+func TestSetInstantiateSpec(t *testing.T) {
+	tr := NewTranspiler(nil)
+	spec := &config.InstantiateSpec{
+		Classes: map[string][]string{
+			"Queue": {"Integer", "String"},
+		},
+		Methods: map[string][]string{
+			"Repository.get": {"Account", "Contact"},
+		},
+	}
+
+	tr.SetInstantiateSpec(spec)
+
+	if tr.instantiateSpec == nil {
+		t.Fatal("instantiateSpec should be set")
+	}
+	if len(tr.instantiateSpec.Classes) != 1 {
+		t.Errorf("expected 1 class in spec, got %d", len(tr.instantiateSpec.Classes))
+	}
+	if len(tr.instantiateSpec.Methods) != 1 {
+		t.Errorf("expected 1 method in spec, got %d", len(tr.instantiateSpec.Methods))
+	}
+}
+
+func TestParseInstantiation(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+		checkType   string
+	}{
+		{
+			name:        "simple instantiation",
+			input:       "Queue<Integer>",
+			expectError: false,
+			checkType:   "Queue",
+		},
+		{
+			name:        "multiple type params",
+			input:       "Dict<String, Integer>",
+			expectError: false,
+			checkType:   "Dict",
+		},
+		{
+			name:        "no generic expression",
+			input:       "JustAClass",
+			expectError: true,
+		},
+		{
+			name:        "invalid syntax",
+			input:       "Queue<<T>>",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := tr.parseInstantiation(tt.input)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if expr == nil {
+					t.Fatal("expected expression but got nil")
+				}
+				if expr.BaseType != tt.checkType {
+					t.Errorf("expected base type %s, got %s", tt.checkType, expr.BaseType)
+				}
+			}
+		})
+	}
+}
+
+func TestProcessInstantiations(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	// Add a template
+	tr.templates["Queue"] = &parser.GenericClassDef{
+		ClassName:  "Queue",
+		TypeParams: []string{"T"},
+		Body:       "{}",
+	}
+
+	tests := []struct {
+		name            string
+		instantiations  []string
+		expectErrors    bool
+		expectedUsages  int
+	}{
+		{
+			name:            "valid instantiation",
+			instantiations:  []string{"Queue<Integer>"},
+			expectErrors:    false,
+			expectedUsages:  1,
+		},
+		{
+			name:            "template not found",
+			instantiations:  []string{"NonExistent<String>"},
+			expectErrors:    true,
+			expectedUsages:  0,
+		},
+		{
+			name:            "invalid syntax",
+			instantiations:  []string{"Queue<<Bad>>"},
+			expectErrors:    true,
+			expectedUsages:  0,
+		},
+		{
+			name:            "empty list",
+			instantiations:  []string{},
+			expectErrors:    false,
+			expectedUsages:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr.instantiations = tt.instantiations
+			tr.usages = make(map[string]*parser.GenericExpr)
+			results := []FileResult{}
+
+			hasErrors := tr.processInstantiations(&results)
+
+			if tt.expectErrors != hasErrors {
+				t.Errorf("expected errors=%v, got %v", tt.expectErrors, hasErrors)
+			}
+
+			if len(tr.usages) != tt.expectedUsages {
+				t.Errorf("expected %d usages, got %d", tt.expectedUsages, len(tr.usages))
+			}
+		})
+	}
+}
+
+func TestProcessMethodInstantiations(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	// Add a method template
+	tr.methodTemplates["Repository.get"] = &parser.GenericMethodDef{
+		ClassName:  "Repository",
+		MethodName: "get",
+		TypeParams: []string{"T"},
+		Signature:  "public <T> T get(String key)",
+		Body:       "{ return (T) cache.get(key); }",
+	}
+
+	tests := []struct {
+		name           string
+		spec           *config.InstantiateSpec
+		expectErrors   bool
+		expectedUsages int
+	}{
+		{
+			name: "valid method instantiation",
+			spec: &config.InstantiateSpec{
+				Methods: map[string][]string{
+					"Repository.get": {"Account", "Contact"},
+				},
+			},
+			expectErrors:   false,
+			expectedUsages: 2,
+		},
+		{
+			name: "method not found",
+			spec: &config.InstantiateSpec{
+				Methods: map[string][]string{
+					"NonExistent.method": {"String"},
+				},
+			},
+			expectErrors:   true,
+			expectedUsages: 0,
+		},
+		{
+			name:           "empty spec",
+			spec:           nil,
+			expectErrors:   false,
+			expectedUsages: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr.instantiateSpec = tt.spec
+			tr.methodUsages = make(map[string][]string)
+			results := []FileResult{}
+
+			hasErrors := tr.processMethodInstantiations(&results)
+
+			if tt.expectErrors != hasErrors {
+				t.Errorf("expected errors=%v, got %v", tt.expectErrors, hasErrors)
+			}
+
+			if tt.spec != nil && tt.spec.Methods != nil {
+				for methodKey := range tt.spec.Methods {
+					if usages, exists := tr.methodUsages[methodKey]; exists {
+						if len(usages) != tt.expectedUsages {
+							t.Errorf("expected %d usages for %s, got %d", tt.expectedUsages, methodKey, len(usages))
+						}
+					} else if !tt.expectErrors {
+						t.Errorf("expected usages for %s to exist", methodKey)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestInstantiateMethod(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	tests := []struct {
+		name         string
+		methodDef    *parser.GenericMethodDef
+		typeArgs     []string
+		shouldContain []string
+		shouldNotContain []string
+	}{
+		{
+			name: "single type parameter",
+			methodDef: &parser.GenericMethodDef{
+				ClassName:  "Repository",
+				MethodName: "get",
+				TypeParams: []string{"T"},
+				Signature:  "public <T> T get(String key)",
+				Body:       "{ return (T) cache.get(key); }",
+			},
+			typeArgs: []string{"Account"},
+			shouldContain: []string{
+				"public  Account getAccount(String key)",
+				"return (Account) cache.get(key)",
+			},
+			shouldNotContain: []string{
+				"<T>",
+				"(T)",
+			},
+		},
+		{
+			name: "multiple type parameters",
+			methodDef: &parser.GenericMethodDef{
+				ClassName:  "Repository",
+				MethodName: "transform",
+				TypeParams: []string{"K", "V"},
+				Signature:  "public <K, V> Map<K, V> transform(K key, V value)",
+				Body:       "{ return new Map<K, V>(); }",
+			},
+			typeArgs: []string{"String", "Integer"},
+			shouldContain: []string{
+				"public  Map<String, Integer> transformStringInteger",
+				"return new Map<String, Integer>",
+			},
+			shouldNotContain: []string{
+				"<K, V>",
+				"<K>",
+				"<V>",
+			},
+		},
+		{
+			name: "parameter count mismatch",
+			methodDef: &parser.GenericMethodDef{
+				ClassName:  "Repository",
+				MethodName: "get",
+				TypeParams: []string{"T"},
+				Signature:  "public <T> T get(String key)",
+				Body:       "{}",
+			},
+			typeArgs: []string{"String", "Integer"},
+			shouldContain: []string{
+				"ERROR",
+				"expected 1, got 2",
+			},
+			shouldNotContain: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tr.instantiateMethod(tt.methodDef, tt.typeArgs)
+
+			for _, expected := range tt.shouldContain {
+				if !strings.Contains(result, expected) {
+					t.Errorf("expected result to contain %q\nGot:\n%s", expected, result)
+				}
+			}
+
+			for _, unexpected := range tt.shouldNotContain {
+				if strings.Contains(result, unexpected) {
+					t.Errorf("expected result NOT to contain %q\nGot:\n%s", unexpected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestInsertMethods(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	tests := []struct {
+		name           string
+		content        string
+		methods        []string
+		shouldContain  []string
+	}{
+		{
+			name: "insert single method",
+			content: `public class Repository {
+    private Map<String, Object> cache;
+}`,
+			methods: []string{
+				"public Account getAccount(String key) { return (Account) cache.get(key); }",
+			},
+			shouldContain: []string{
+				"// Generated concrete methods",
+				"public Account getAccount",
+			},
+		},
+		{
+			name: "insert multiple methods",
+			content: `public class Repository {
+    private Map<String, Object> cache;
+}`,
+			methods: []string{
+				"public Account getAccount(String key) { return (Account) cache.get(key); }",
+				"public Contact getContact(String key) { return (Contact) cache.get(key); }",
+			},
+			shouldContain: []string{
+				"getAccount",
+				"getContact",
+			},
+		},
+		{
+			name: "no closing brace",
+			content: `public class Repository {
+    private Map<String, Object> cache;`,
+			methods: []string{
+				"public Account getAccount(String key) {}",
+			},
+			shouldContain: []string{
+				"private Map<String, Object> cache;",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tr.insertMethods(tt.content, tt.methods)
+
+			for _, expected := range tt.shouldContain {
+				if !strings.Contains(result, expected) {
+					t.Errorf("expected result to contain %q\nGot:\n%s", expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestCollectMethodTemplates(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	tests := []struct {
+		name           string
+		files          map[string]string
+		expectErrors   bool
+		expectedMethods int
+	}{
+		{
+			name: "single generic method",
+			files: map[string]string{
+				"Repository.peak": `public class Repository {
+    public <T> T get(String key) { return (T) cache.get(key); }
+}`,
+			},
+			expectErrors:    false,
+			expectedMethods: 1,
+		},
+		{
+			name: "multiple generic methods",
+			files: map[string]string{
+				"Repository.peak": `public class Repository {
+    public <T> T get(String key) { return (T) cache.get(key); }
+    public <T> void put(String key, T value) { cache.put(key, value); }
+}`,
+			},
+			expectErrors:    false,
+			expectedMethods: 2,
+		},
+		{
+			name: "generic method in template class",
+			files: map[string]string{
+				"Queue.peak": `public class Queue<T> {
+    public <K> Map<K, List<T>> groupBy(String field) { return new Map<K, List<T>>(); }
+}`,
+			},
+			expectErrors:    false,
+			expectedMethods: 1,
+		},
+		{
+			name: "parse error in method",
+			files: map[string]string{
+				"Bad.peak": `public class Bad {
+    public <T T> T badMethod() {}
+}`,
+			},
+			expectErrors:    false, // Parser handles gracefully
+			expectedMethods: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr.methodTemplates = make(map[string]*parser.GenericMethodDef)
+			results := []FileResult{}
+
+			hasErrors := tr.collectMethodTemplates(tt.files, &results)
+
+			if tt.expectErrors != hasErrors {
+				t.Errorf("expected errors=%v, got %v", tt.expectErrors, hasErrors)
+			}
+
+			if len(tr.methodTemplates) != tt.expectedMethods {
+				t.Errorf("expected %d method templates, got %d", tt.expectedMethods, len(tr.methodTemplates))
+			}
+		})
+	}
+}
+
+func TestTranspileFiles_WithForcedInstantiations(t *testing.T) {
+	tr := NewTranspiler(nil)
+	tr.SetInstantiations([]string{"Queue<Boolean>", "Queue<Decimal>"})
+
+	files := map[string]string{
+		"Queue.peak": `public class Queue<T> {
+    private List<T> items;
+}`,
+		"Example.peak": `public class Example {
+    private Integer x;
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Should generate QueueBoolean and QueueDecimal even though not used in code
+	var foundBoolean, foundDecimal bool
+	for _, result := range results {
+		if strings.Contains(result.OutputPath, "QueueBoolean.cls") {
+			foundBoolean = true
+			if !strings.Contains(result.Content, "List<Boolean>") {
+				t.Error("QueueBoolean should contain List<Boolean>")
+			}
+		}
+		if strings.Contains(result.OutputPath, "QueueDecimal.cls") {
+			foundDecimal = true
+			if !strings.Contains(result.Content, "List<Decimal>") {
+				t.Error("QueueDecimal should contain List<Decimal>")
+			}
+		}
+	}
+
+	if !foundBoolean {
+		t.Error("QueueBoolean.cls should be generated from forced instantiation")
+	}
+	if !foundDecimal {
+		t.Error("QueueDecimal.cls should be generated from forced instantiation")
+	}
+}
+
+func TestTranspileFiles_WithGenericMethods(t *testing.T) {
+	tr := NewTranspiler(nil)
+	tr.SetInstantiateSpec(&config.InstantiateSpec{
+		Methods: map[string][]string{
+			"Repository.get": {"Account", "Contact"},
+		},
+	})
+
+	files := map[string]string{
+		"Repository.peak": `public class Repository {
+    private Map<String, Object> cache;
+
+    public <T> T get(String key) {
+        return (T) cache.get(key);
+    }
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Find Repository.cls
+	var repoResult *FileResult
+	for i := range results {
+		if results[i].OutputPath == "Repository.cls" {
+			repoResult = &results[i]
+			break
+		}
+	}
+
+	if repoResult == nil {
+		t.Fatal("Repository.cls not found")
+	}
+
+	// Check that concrete methods were inserted
+	if !strings.Contains(repoResult.Content, "getAccount") {
+		t.Error("Repository.cls should contain getAccount method")
+	}
+	if !strings.Contains(repoResult.Content, "getContact") {
+		t.Error("Repository.cls should contain getContact method")
+	}
+	if !strings.Contains(repoResult.Content, "// Generated concrete methods") {
+		t.Error("Repository.cls should contain generated methods comment")
+	}
+}
+
+func TestExtractClassName(t *testing.T) {
+	tr := NewTranspiler(nil)
+
+	tests := []struct {
+		name     string
+		content  string
+		expected string
+	}{
+		{
+			name:     "simple class",
+			content:  "public class MyClass { }",
+			expected: "MyClass",
+		},
+		{
+			name:     "class with generic",
+			content:  "public class Queue<T> { }",
+			expected: "Queue",
+		},
+		{
+			name:     "private class",
+			content:  "private class Helper { }",
+			expected: "Helper",
+		},
+		{
+			name:     "class without modifier",
+			content:  "class Simple { }",
+			expected: "Simple",
+		},
+		{
+			name:     "multiline",
+			content:  "  \n  public class Test { }",
+			expected: "Test",
+		},
+		{
+			name:     "multiple spaces",
+			content:  "public    class     MyClass { }",
+			expected: "MyClass",
+		},
+		{
+			name:     "tabs and spaces",
+			content:  "public\t\tclass\t MyClass<T> { }",
+			expected: "MyClass",
+		},
+		{
+			name:     "no class",
+			content:  "interface ITest { }",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tr.extractClassName(tt.content)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
 	}
 }

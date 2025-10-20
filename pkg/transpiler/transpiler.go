@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ipavlic/peak/pkg/config"
 	"github.com/ipavlic/peak/pkg/parser"
 )
 
@@ -27,11 +28,14 @@ type FileResult struct {
 
 // Transpiler handles transpilation of Peak files to Apex
 type Transpiler struct {
-	templates      map[string]*parser.GenericClassDef // Generic class definitions
-	templatePaths  map[string]string                  // Template name to file path
-	usages         map[string]*parser.GenericExpr     // Generic instantiations
-	outputPathFn   func(string) (string, error)       // Function to resolve output paths
-	instantiations []string                           // Forced instantiations from config
+	templates        map[string]*parser.GenericClassDef  // Generic class definitions
+	templatePaths    map[string]string                   // Template name to file path
+	methodTemplates  map[string]*parser.GenericMethodDef // Generic method definitions (keyed by "ClassName.methodName")
+	usages           map[string]*parser.GenericExpr      // Generic instantiations
+	outputPathFn     func(string) (string, error)        // Function to resolve output paths
+	instantiations   []string                            // Forced class instantiations from config (legacy)
+	instantiateSpec  *config.InstantiateSpec             // Structured instantiation config (classes + methods)
+	methodUsages     map[string][]string                 // Method instantiations: "ClassName.methodName" -> ["String", "Decimal", ...]
 }
 
 // NewTranspiler creates a new transpiler with a custom output path resolver.
@@ -45,18 +49,27 @@ func NewTranspiler(outputPathFn func(string) (string, error)) *Transpiler {
 	}
 
 	return &Transpiler{
-		templates:      make(map[string]*parser.GenericClassDef),
-		templatePaths:  make(map[string]string),
-		usages:         make(map[string]*parser.GenericExpr),
-		outputPathFn:   outputPathFn,
-		instantiations: nil,
+		templates:        make(map[string]*parser.GenericClassDef),
+		templatePaths:    make(map[string]string),
+		methodTemplates:  make(map[string]*parser.GenericMethodDef),
+		usages:           make(map[string]*parser.GenericExpr),
+		outputPathFn:     outputPathFn,
+		instantiations:   nil,
+		instantiateSpec:  nil,
+		methodUsages:     make(map[string][]string),
 	}
 }
 
-// SetInstantiations sets the list of forced instantiations from config.
+// SetInstantiations sets the list of forced instantiations from config (legacy format).
 // These will be validated and processed after templates are collected.
 func (t *Transpiler) SetInstantiations(instantiations []string) {
 	t.instantiations = instantiations
+}
+
+// SetInstantiateSpec sets the structured instantiation configuration.
+// This supports both class and method instantiations.
+func (t *Transpiler) SetInstantiateSpec(spec *config.InstantiateSpec) {
+	t.instantiateSpec = spec
 }
 
 // TranspileFiles processes multiple files and generates concrete classes
@@ -66,8 +79,14 @@ func (t *Transpiler) TranspileFiles(files map[string]string) ([]FileResult, erro
 	// Phase 1: Collect all generic class definitions (templates)
 	hasErrors := t.collectTemplates(files, &results)
 
+	// Phase 1.1: Collect all generic method definitions
+	hasErrors = t.collectMethodTemplates(files, &results) || hasErrors
+
 	// Phase 1.5: Process forced instantiations from config
 	hasErrors = t.processInstantiations(&results) || hasErrors
+
+	// Phase 1.6: Process forced method instantiations from config
+	hasErrors = t.processMethodInstantiations(&results) || hasErrors
 
 	// Phase 2: Collect all generic instantiations
 	hasErrors = t.collectUsages(files, &results) || hasErrors
@@ -117,6 +136,93 @@ func (t *Transpiler) collectTemplates(files map[string]string, results *[]FileRe
 	return hasErrors
 }
 
+// collectMethodTemplates scans all files for generic method definitions
+func (t *Transpiler) collectMethodTemplates(files map[string]string, results *[]FileResult) bool {
+	hasErrors := false
+	for path, content := range files {
+		// First, find the class name for this file
+		p := parser.NewParser(content)
+		p.SetFileName(path)
+		classDefs, err := p.FindGenericClassDefinitions()
+		if err != nil {
+			// If we can't find class definitions, skip method collection
+			continue
+		}
+
+		// For each class in this file, find its methods
+		// Note: We assume one class per file for simplicity
+		for className := range classDefs {
+			// Create a new parser for method scanning
+			methodParser := parser.NewParser(content)
+			methodParser.SetFileName(path)
+			methods, err := methodParser.FindGenericMethodDefinitions(className)
+			if err != nil {
+				hasErrors = true
+				*results = append(*results, FileResult{
+					OriginalPath: path,
+					Error:        err,
+				})
+				continue
+			}
+
+			// Store method templates
+			for key, method := range methods {
+				t.methodTemplates[key] = method
+			}
+		}
+
+		// Also check non-template classes for generic methods
+		// Parse for regular class definitions
+		regularClassParser := parser.NewParser(content)
+		regularClassParser.SetFileName(path)
+
+		// Try to find class name from content (simple heuristic)
+		className := t.extractClassName(content)
+		if className != "" && len(classDefs) == 0 {
+			// This is a non-template class, check for generic methods
+			methodParser := parser.NewParser(content)
+			methodParser.SetFileName(path)
+			methods, err := methodParser.FindGenericMethodDefinitions(className)
+			if err != nil {
+				hasErrors = true
+				*results = append(*results, FileResult{
+					OriginalPath: path,
+					Error:        err,
+				})
+				continue
+			}
+
+			for key, method := range methods {
+				t.methodTemplates[key] = method
+			}
+		}
+	}
+	return hasErrors
+}
+
+// extractClassName extracts the class name from file content (simple heuristic)
+func (t *Transpiler) extractClassName(content string) string {
+	// Simple approach: look for "class ClassName" with any whitespace
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Use Fields to split on any whitespace, then look for "class" keyword
+		words := strings.Fields(trimmed)
+		for i, word := range words {
+			if word == "class" && i+1 < len(words) {
+				// Next word is the class name (might have < or { after it)
+				className := words[i+1]
+				// Strip off any < or {
+				if idx := strings.IndexAny(className, "<{"); idx >= 0 {
+					className = className[:idx]
+				}
+				return className
+			}
+		}
+	}
+	return ""
+}
+
 // processInstantiations validates and processes forced instantiations from config (Phase 1.5)
 func (t *Transpiler) processInstantiations(results *[]FileResult) bool {
 	if len(t.instantiations) == 0 {
@@ -148,6 +254,34 @@ func (t *Transpiler) processInstantiations(results *[]FileResult) bool {
 
 		// Add to usages (same as discovered usages)
 		t.usages[instantiation] = expr
+	}
+
+	return hasErrors
+}
+
+// processMethodInstantiations validates and processes method instantiations from config
+func (t *Transpiler) processMethodInstantiations(results *[]FileResult) bool {
+	if t.instantiateSpec == nil || len(t.instantiateSpec.Methods) == 0 {
+		return false
+	}
+
+	hasErrors := false
+	for methodKey, typeArgs := range t.instantiateSpec.Methods {
+		// Validate that the method template exists
+		if _, exists := t.methodTemplates[methodKey]; !exists {
+			hasErrors = true
+			*results = append(*results, FileResult{
+				OriginalPath: "peakconfig.json",
+				Error:        fmt.Errorf("method instantiation '%s' references undefined generic method", methodKey),
+			})
+			continue
+		}
+
+		// Store method usages
+		for _, typeArg := range typeArgs {
+			// Add each type argument to the list of usages for this method
+			t.methodUsages[methodKey] = append(t.methodUsages[methodKey], typeArg)
+		}
 	}
 
 	return hasErrors
@@ -265,6 +399,41 @@ func (t *Transpiler) transpileFile(path, content string) (FileResult, error) {
 
 	output := t.replaceGenericUsages(content, generics)
 
+	// Check if this file contains generic methods that need instantiation
+	className := t.extractClassName(output)
+	if className != "" && len(t.methodUsages) > 0 {
+		var concreteMethods []string
+
+		// Check each method usage to see if it belongs to this class
+		for methodKey, typeArgsList := range t.methodUsages {
+			// Parse methodKey as "ClassName.methodName"
+			parts := strings.Split(methodKey, ".")
+			if len(parts) == 2 && parts[0] == className {
+				methodTemplate, exists := t.methodTemplates[methodKey]
+				if !exists {
+					continue
+				}
+
+				// Generate concrete methods for each type argument
+				for _, typeArg := range typeArgsList {
+					// Split comma-separated type arguments for multi-parameter methods
+					typeArgs := strings.Split(typeArg, ",")
+					// Trim whitespace from each type argument
+					for i, arg := range typeArgs {
+						typeArgs[i] = strings.TrimSpace(arg)
+					}
+					concreteMethod := t.instantiateMethod(methodTemplate, typeArgs)
+					concreteMethods = append(concreteMethods, concreteMethod)
+				}
+			}
+		}
+
+		// Insert concrete methods into the class body
+		if len(concreteMethods) > 0 {
+			output = t.insertMethods(output, concreteMethods)
+		}
+	}
+
 	// Generate output path using configured resolver
 	outputPath, err := t.outputPathFn(path)
 	if err != nil {
@@ -277,6 +446,36 @@ func (t *Transpiler) transpileFile(path, content string) (FileResult, error) {
 		Content:      output,
 		IsTemplate:   false,
 	}, nil
+}
+
+// insertMethods inserts generated concrete methods into the class body before the closing brace
+func (t *Transpiler) insertMethods(content string, methods []string) string {
+	// Find the last closing brace (end of class)
+	lastBraceIdx := strings.LastIndex(content, "}")
+	if lastBraceIdx == -1 {
+		// No closing brace found, return content as-is
+		return content
+	}
+
+	// Build the methods to insert with proper indentation
+	var methodsBlock strings.Builder
+	methodsBlock.WriteString("\n    // Generated concrete methods\n")
+	for _, method := range methods {
+		// Add indentation to each line of the method
+		lines := strings.Split(method, "\n")
+		for _, line := range lines {
+			if line != "" {
+				methodsBlock.WriteString("    ")
+				methodsBlock.WriteString(line)
+				methodsBlock.WriteString("\n")
+			}
+		}
+		methodsBlock.WriteString("\n")
+	}
+
+	// Insert before the last closing brace
+	result := content[:lastBraceIdx] + methodsBlock.String() + content[lastBraceIdx:]
+	return result
 }
 
 // replaceGenericUsages replaces all generic template usages in content with concrete class names.
@@ -479,4 +678,44 @@ func replaceTypeParameter(input, param, concreteType string) string {
 // isIdentifierChar reports whether r can be part of an Apex identifier.
 func isIdentifierChar(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+}
+
+// instantiateMethod creates a concrete method from a generic method template
+// Example: groupBy<K> with K=String -> groupByString
+func (t *Transpiler) instantiateMethod(methodDef *parser.GenericMethodDef, typeArgs []string) string {
+	if len(methodDef.TypeParams) != len(typeArgs) {
+		// Mismatch in type parameter count
+		return fmt.Sprintf("// ERROR: Type parameter mismatch for %s (expected %d, got %d)",
+			methodDef.MethodName, len(methodDef.TypeParams), len(typeArgs))
+	}
+
+	// Build substitution map for type parameters
+	substitutions := make(map[string]string, len(methodDef.TypeParams))
+	for i, param := range methodDef.TypeParams {
+		substitutions[param] = typeArgs[i]
+	}
+
+	// Generate concrete method name
+	concreteMethodName := parser.GenerateConcreteMethodName(methodDef.MethodName, typeArgs)
+
+	// Pass 1: Remove the type parameter declaration from signature FIRST (e.g., <K> or <K, V>)
+	// This must be done before substituting type parameters, otherwise <K> becomes <String>
+	typeParamDecl := "<" + strings.Join(methodDef.TypeParams, ", ") + ">"
+	signature := strings.Replace(methodDef.Signature, typeParamDecl, "", 1)
+
+	// Pass 2: Replace type parameters in signature and body
+	for param, concreteType := range substitutions {
+		signature = replaceTypeParameter(signature, param, concreteType)
+	}
+
+	// Pass 3: Replace method name in signature only (not in body)
+	signature = replaceTypeParameter(signature, methodDef.MethodName, concreteMethodName)
+
+	// Pass 4: Replace type parameters in body (but not method name)
+	body := methodDef.Body
+	for param, concreteType := range substitutions {
+		body = replaceTypeParameter(body, param, concreteType)
+	}
+
+	return signature + " " + body
 }

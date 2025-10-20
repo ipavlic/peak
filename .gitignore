@@ -1,4 +1,5 @@
 .claude/
+.idea/
 
 # Coverage files
 coverage.out
@@ -7,3 +8,14 @@ coverage.out
 # Build artifacts
 peak
 *.exe
+
+# Added by Illuminated Cloud
+.sf/
+.sfdx/
+.localdev/
+/IlluminatedCloud/
+target/
+node_modules/
+/.illuminatedCloud/
+**/tsconfig*.json
+**/*.tsbuildinfo

@@ -13,6 +13,17 @@ import (
 	"path/filepath"
 )
 
+// InstantiateSpec holds structured instantiation configuration
+type InstantiateSpec struct {
+	// Classes maps template class names to type arguments
+	// Example: {"Queue": ["Integer", "String"], "Optional": ["Double"]}
+	Classes map[string][]string `json:"classes,omitempty"`
+
+	// Methods maps "ClassName.methodName" to type arguments
+	// Example: {"SObjectCollection.groupBy": ["String", "Decimal", "Boolean"]}
+	Methods map[string][]string `json:"methods,omitempty"`
+}
+
 // CompilerOptions contains compiler-specific configuration options
 type CompilerOptions struct {
 	// OutDir is the output directory relative to the source directory
@@ -24,7 +35,11 @@ type CompilerOptions struct {
 
 	// Instantiate is a list of generic instantiations to always generate
 	// even if not used in code. Example: ["Optional<Double>", "Queue<String>"]
+	// DEPRECATED: Use InstantiateSpec for new configs (supports both classes and methods)
 	Instantiate []string `json:"instantiate,omitempty"`
+
+	// InstantiateSpec provides structured instantiation for classes and methods
+	InstantiateSpec *InstantiateSpec `json:"instantiateSpec,omitempty"`
 }
 
 // ConfigFile represents the structure of peak.config.json
@@ -34,11 +49,12 @@ type ConfigFile struct {
 
 // Config represents the runtime configuration for the transpiler
 type Config struct {
-	SourceDir   string   // Directory to compile (from CLI or current dir)
-	OutDir      string   // Output directory (absolute path, empty = co-located)
-	Watch       bool     // Watch mode enabled
-	Verbose     bool     // Enable verbose logging
-	Instantiate []string // Generic instantiations to always generate
+	SourceDir       string           // Directory to compile (from CLI or current dir)
+	OutDir          string           // Output directory (absolute path, empty = co-located)
+	Watch           bool             // Watch mode enabled
+	Verbose         bool             // Enable verbose logging
+	Instantiate     []string         // Generic class instantiations (legacy format)
+	InstantiateSpec *InstantiateSpec // Structured instantiation for classes and methods
 }
 
 // CLIFlags represents command-line flags
@@ -124,6 +140,7 @@ func loadConfigFile(path string, config *Config) error {
 	}
 	config.Verbose = opts.Verbose
 	config.Instantiate = opts.Instantiate
+	config.InstantiateSpec = opts.InstantiateSpec
 
 	return nil
 }

@@ -1,0 +1,25 @@
+public class Repository {
+    private Map<String, Object> cache;
+
+    public Repository() {
+        this.cache = new Map<String, Object>();
+    }
+
+    // Generic method to get a cached value
+    public <T> T get(String key) {
+        return (T) cache.get(key);
+    }
+
+    // Generic method to store a value
+    public <T> void put(String key, T value) {
+        cache.put(key, value);
+    }
+
+    // Generic method to get with default value
+    public <T> T getOrDefault(String key, T defaultValue) {
+        if (cache.containsKey(key)) {
+            return (T) cache.get(key);
+        }
+        return defaultValue;
+    }
+}

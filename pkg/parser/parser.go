@@ -75,6 +75,17 @@ type GenericClassDef struct {
 	EndPos     int      // End position in source
 }
 
+// GenericMethodDef represents a generic method definition
+type GenericMethodDef struct {
+	ClassName  string   // e.g., "SObjectCollection"
+	MethodName string   // e.g., "groupBy"
+	TypeParams []string // e.g., ["K"]
+	Signature  string   // Method signature without body (e.g., "public <K> Map<K, List<SObject>> groupBy(String apiFieldName)")
+	Body       string   // Method body with generic type parameters
+	StartPos   int      // Start position in source (beginning of method)
+	EndPos     int      // End position in source (end of method)
+}
+
 // Parser handles the parsing of Peak source code
 type Parser struct {
 	input    string
@@ -408,6 +419,19 @@ func GenerateConcreteClassName(expr *GenericExpr) string {
 	return strings.Join(parts, "")
 }
 
+// GenerateConcreteMethodName generates a concrete method name from a generic method signature
+// Example: groupBy with type args [String] -> groupByString
+//          transform with type args [String, Integer] -> transformStringInteger
+func GenerateConcreteMethodName(methodName string, typeArgs []string) string {
+	if len(typeArgs) == 0 {
+		return methodName
+	}
+
+	parts := []string{methodName}
+	parts = append(parts, typeArgs...)
+	return strings.Join(parts, "")
+}
+
 // String returns a string representation of the generic expression
 func (g *GenericExpr) String() string {
 	if g.IsSimple {
@@ -596,6 +620,246 @@ func (p *Parser) extractClassBody() (string, int) {
 	}
 
 	if p.pos >= len(p.input) {
+		return "", p.pos
+	}
+
+	startBody := p.pos
+	p.advance(1) // skip '{'
+
+	// Find matching closing brace
+	braceCount := 1
+	for p.pos < len(p.input) && braceCount > 0 {
+		if p.current() == '{' {
+			braceCount++
+		} else if p.current() == '}' {
+			braceCount--
+		}
+		p.advance(1)
+	}
+
+	endBody := p.pos
+	return p.input[startBody:endBody], endBody
+}
+
+// FindGenericMethodDefinitions scans for generic method definitions.
+// It finds patterns like "public <K> Map<K, List<SObject>> groupBy(String field)".
+// Returns a map from "ClassName.methodName" to GenericMethodDef.
+// The className must be provided from context (extracted from containing class).
+func (p *Parser) FindGenericMethodDefinitions(className string) (map[string]*GenericMethodDef, error) {
+	definitions := make(map[string]*GenericMethodDef)
+
+	// Reset parser position
+	originalPos := p.pos
+	p.pos = 0
+
+	// Method modifiers that can appear before generic methods
+	modifiers := []string{"public", "private", "protected", "static", "final", "override", "virtual", "abstract"}
+
+	for p.pos < len(p.input) {
+		// Skip whitespace and comments
+		p.skipWhitespaceAndComments()
+
+		// Check if we've reached the end
+		if p.pos >= len(p.input) {
+			break
+		}
+
+		// Try to match method modifiers
+		foundModifier := false
+		modifierStart := p.pos
+		for _, modifier := range modifiers {
+			if p.matchKeyword(modifier) {
+				foundModifier = true
+				p.pos += len(modifier)
+				p.skipWhitespace()
+				break
+			}
+		}
+
+		if !foundModifier {
+			p.advance(1)
+			continue
+		}
+
+		// After a modifier, check if we have '<' (generic method)
+		if p.current() != '<' {
+			// Not a generic method, continue
+			continue
+		}
+
+		// Found potential generic method: modifier <TypeParams>
+		beforeAngleBracket := p.pos
+
+		// Try to parse type parameters
+		p.advance(1) // skip '<'
+		typeParams, err := p.parseTypeParameterList()
+		if err != nil {
+			// Not valid type parameters, continue
+			p.pos = beforeAngleBracket + 1
+			continue
+		}
+
+		// After type parameters, we should have return type and method name
+		p.skipWhitespace()
+
+		// Skip over return type (can be complex) to find method name
+		if !p.skipToMethodName() {
+			continue
+		}
+
+		// Parse method name
+		methodName := p.parseIdentifier()
+		if methodName == "" {
+			continue
+		}
+
+		p.skipWhitespace()
+
+		// Expect '(' for method parameters
+		if p.current() != '(' {
+			continue
+		}
+
+		// Advance past the opening '('
+		p.advance(1)
+
+		// Skip to end of parameters
+		if !p.skipToClosingParen() {
+			continue
+		}
+
+		p.advance(1) // skip ')'
+		p.skipWhitespace()
+
+		// Expect '{' for method body
+		if p.current() != '{' {
+			continue
+		}
+
+		// Extract signature (from start of modifiers to opening brace)
+		signatureEnd := p.pos
+		signature := strings.TrimSpace(p.input[modifierStart:signatureEnd])
+
+		// Extract method body
+		body, endPos := p.extractMethodBody()
+
+		key := className + "." + methodName
+		definitions[key] = &GenericMethodDef{
+			ClassName:  className,
+			MethodName: methodName,
+			TypeParams: typeParams,
+			Signature:  signature,
+			Body:       body,
+			StartPos:   modifierStart,
+			EndPos:     endPos,
+		}
+	}
+
+	p.pos = originalPos
+	return definitions, nil
+}
+
+// parseTypeParameterList parses a comma-separated list of type parameters
+// Expects to be positioned after the opening '<'
+func (p *Parser) parseTypeParameterList() ([]string, error) {
+	var params []string
+
+	for {
+		p.skipWhitespace()
+
+		// Parse type parameter name
+		param := p.parseIdentifier()
+		if param == "" {
+			return nil, fmt.Errorf("expected type parameter name")
+		}
+
+		// Validate single-letter constraint
+		if len(param) != 1 {
+			return nil, p.createError(p.pos-len(param), fmt.Sprintf("type parameter must be a single letter, got: %s", param))
+		}
+
+		params = append(params, param)
+		p.skipWhitespace()
+
+		// Check for '>' or ','
+		if p.current() == '>' {
+			p.advance(1) // skip '>'
+			break
+		} else if p.current() == ',' {
+			p.advance(1) // skip ','
+			continue
+		} else {
+			return nil, p.createError(p.pos, "expected '>' or ','")
+		}
+	}
+
+	return params, nil
+}
+
+// skipToMethodName skips over the return type to find the method name
+// This is a heuristic: we skip until we find an identifier followed by '('
+func (p *Parser) skipToMethodName() bool {
+	depth := 0
+	for p.pos < len(p.input) {
+		p.skipWhitespace()
+
+		if p.current() == '<' {
+			depth++
+			p.advance(1)
+		} else if p.current() == '>' {
+			depth--
+			p.advance(1)
+		} else if depth == 0 && (unicode.IsLetter(rune(p.current())) || p.current() == '_') {
+			// Found potential identifier at depth 0
+			// Save position and try to parse identifier
+			savedPos := p.pos
+			identifier := p.parseIdentifier()
+			if identifier == "" {
+				return false
+			}
+
+			// Check what comes after the identifier (skip whitespace)
+			p.skipWhitespace()
+
+			if p.current() == '(' {
+				// This is the method name! Restore position to start of identifier
+				p.pos = savedPos
+				return true
+			}
+
+			// Not the method name (might be return type like "Map"), continue searching
+			// Position is already advanced past the identifier
+		} else if p.current() == '(' {
+			// Reached parameters without finding method name
+			return false
+		} else {
+			p.advance(1)
+		}
+	}
+	return false
+}
+
+// skipToClosingParen skips to the closing parenthesis, handling nested parens
+func (p *Parser) skipToClosingParen() bool {
+	depth := 1
+	for p.pos < len(p.input) {
+		if p.current() == '(' {
+			depth++
+		} else if p.current() == ')' {
+			depth--
+			if depth == 0 {
+				return true
+			}
+		}
+		p.advance(1)
+	}
+	return false
+}
+
+// extractMethodBody extracts the method body from current position
+// Expects to be positioned at the opening '{'
+func (p *Parser) extractMethodBody() (string, int) {
+	if p.current() != '{' {
 		return "", p.pos
 	}
 

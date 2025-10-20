@@ -4,6 +4,17 @@
       "Queue<Boolean>",
       "Queue<Decimal>",
       "Dict<Boolean, String>"
-    ]
+    ],
+    "instantiateSpec": {
+      "classes": {
+        "Queue": ["Integer", "String"],
+        "Dict": ["String,Integer", "Integer,String"]
+      },
+      "methods": {
+        "Repository.get": ["Account", "Contact", "String"],
+        "Repository.put": ["Account", "Contact"],
+        "Repository.getOrDefault": ["String", "Integer"]
+      }
+    }
   }
 }
