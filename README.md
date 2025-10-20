@@ -403,7 +403,6 @@ Peak focuses on class-level generics. These features are not yet supported:
 
 | Feature | Status | Example |
 |---------|--------|---------|
-| Generic methods | Not supported | `public <T> T max(T a, T b)` |
 | Type constraints | Not supported | `class Queue<T extends SObject>` |
 | Variance annotations | Not supported | `class Queue<out T>` |
 
