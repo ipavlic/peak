@@ -183,6 +183,7 @@ Create `peakconfig.json` in your source directory to customize behavior:
   "compilerOptions": {
     "outDir": "build/classes",
     "instantiate": {
+    "instantiate": {
       "classes": {
         "Queue": ["Integer", "String", "Boolean"],
         "Optional": ["Double", "Decimal"]
@@ -200,6 +201,7 @@ Create `peakconfig.json` in your source directory to customize behavior:
 **Configuration Options:**
 
 - `outDir` - Output directory for generated files (can be overridden by `--out-dir` flag)
+- `instantiate` - List of generic instantiations to always generate, even if not used in code
 - `instantiate` - Structured instantiation for both classes and methods:
   - `classes` - Map of template names to type arguments (e.g., `"Queue": ["Integer", "String"]`)
   - `methods` - Map of method keys to type arguments (e.g., `"ClassName.methodName": ["String", "Decimal"]`)
@@ -397,7 +399,6 @@ Peak focuses on class-level generics. These features are not yet supported:
 
 | Feature | Status | Example |
 |---------|--------|---------|
-| Generic methods | Not supported | `public <T> T max(T a, T b)` |
 | Type constraints | Not supported | `class Queue<T extends SObject>` |
 | Variance annotations | Not supported | `class Queue<out T>` |
 
