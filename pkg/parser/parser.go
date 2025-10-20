@@ -70,6 +70,7 @@ type GenericExpr struct {
 type GenericClassDef struct {
 	ClassName  string   // e.g., "Queue"
 	TypeParams []string // e.g., ["T"]
+	Modifiers  string   // e.g., "public with sharing" (everything before "class")
 	Body       string   // The class body with generic type parameters
 	StartPos   int      // Start position in source
 	EndPos     int      // End position in source
@@ -457,6 +458,8 @@ func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, err
 	originalPos := p.pos
 	p.pos = 0
 
+	var prevIdentifier string
+	var modifierStart int = -1 // Track where modifiers start
 	for p.pos < len(p.input) {
 		// Skip whitespace and comments
 		p.skipWhitespaceAndComments()
@@ -466,19 +469,82 @@ func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, err
 			break
 		}
 
-		// Look for "class" keyword
-		if !p.matchKeyword("class") {
+		// Skip until we find an identifier
+		if !unicode.IsLetter(rune(p.current())) && p.current() != '_' {
 			p.advance(1)
+			prevIdentifier = "" // Reset on non-identifier
+			modifierStart = -1  // Reset modifier tracking
 			continue
 		}
 
-		// Skip "class" keyword
-		p.pos += 5
+		// Mark the start of potential modifiers (if not already marked)
+		if modifierStart == -1 {
+			modifierStart = p.pos
+		}
+
+		// Parse the identifier
+		identifier := p.parseIdentifier()
+
+		// Reject standalone "sharing" keyword without valid prefix
+		if identifier == "sharing" {
+			validSharingPrefix := prevIdentifier == "with" || prevIdentifier == "without" || prevIdentifier == "inherited"
+			if !validSharingPrefix {
+				// Invalid: "sharing" must be preceded by with/without/inherited
+				// Skip until we find something other than whitespace/class
+				p.skipWhitespace()
+				// Skip past "class" if present to avoid detecting this as valid
+				if p.matchKeyword("class") {
+					p.pos += 5
+				}
+				prevIdentifier = ""
+				modifierStart = -1
+				continue
+			}
+		}
+
+		// Handle sharing keywords if present (with/without/inherited sharing)
+		if identifier == "with" || identifier == "without" || identifier == "inherited" {
+			p.skipWhitespace()
+			nextWord := p.parseIdentifier()
+			if nextWord != "sharing" {
+				// Invalid: must be followed by "sharing"
+				// If next word is "class", skip past it to avoid detecting this as valid
+				if nextWord == "class" {
+					// Already consumed "class", just skip past the class name and type params
+					p.skipWhitespace()
+					p.parseIdentifier() // skip class name
+				}
+				prevIdentifier = ""
+				modifierStart = -1
+				continue
+			}
+			// Valid sharing pattern found, now look for "class"
+			p.skipWhitespace()
+			identifier = p.parseIdentifier()
+			prevIdentifier = "" // Reset since we've consumed the sharing keywords
+		}
+
+		// Check if this identifier is "class"
+		if identifier != "class" {
+			prevIdentifier = identifier
+			continue
+		}
+
+		// Found "class" keyword - extract modifiers before it
+		classKeywordEnd := p.pos
+		classKeywordStart := classKeywordEnd - len("class")
+
+		// Extract modifiers (everything from modifierStart to just before "class")
+		modifiers := ""
+		if modifierStart >= 0 && modifierStart < classKeywordStart {
+			modifiers = strings.TrimSpace(p.input[modifierStart:classKeywordStart])
+		}
+
 		p.skipWhitespace()
 
-		// Parse class name
 		className := p.parseIdentifier()
 		if className == "" {
+			modifierStart = -1
 			continue
 		}
 
@@ -486,11 +552,17 @@ func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, err
 
 		// Check if this is a generic class (has <T> after class name)
 		if p.current() != '<' {
+			modifierStart = -1
 			continue
 		}
 
 		// Parse type parameters
-		startPos := p.pos - len(className) - 5 // Include "class "
+		// Calculate start position (back to beginning of modifiers or "class" keyword)
+		startPos := modifierStart
+		if startPos == -1 {
+			startPos = classKeywordStart
+		}
+
 		typeParams, err := p.parseTypeParameters()
 		if err != nil {
 			p.pos = originalPos
@@ -503,10 +575,14 @@ func (p *Parser) FindGenericClassDefinitions() (map[string]*GenericClassDef, err
 		definitions[className] = &GenericClassDef{
 			ClassName:  className,
 			TypeParams: typeParams,
+			Modifiers:  modifiers,
 			Body:       body,
 			StartPos:   startPos,
 			EndPos:     endPos,
 		}
+
+		// Reset modifier tracking for next class
+		modifierStart = -1
 	}
 
 	p.pos = originalPos

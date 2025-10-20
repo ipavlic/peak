@@ -1,0 +1,9 @@
+public class SharingUsage {
+    private SecureQueue<String> stringQueue;
+    private SecureQueue<Integer> intQueue;
+
+    public SharingUsage() {
+        this.stringQueue = new SecureQueue<String>();
+        this.intQueue = new SecureQueue<Integer>();
+    }
+}

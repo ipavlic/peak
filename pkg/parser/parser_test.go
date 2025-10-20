@@ -329,6 +329,33 @@ public class Bar<U> {
 			expectedClass:  "Wrapper",
 			expectedParams: []string{"T"},
 		},
+		{
+			name: "with sharing keyword",
+			input: `public with sharing class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount:  1,
+			expectedClass:  "Queue",
+			expectedParams: []string{"T"},
+		},
+		{
+			name: "without sharing keyword",
+			input: `public without sharing class Dict<K, V> {
+    private Map<K, V> data;
+}`,
+			expectedCount:  1,
+			expectedClass:  "Dict",
+			expectedParams: []string{"K", "V"},
+		},
+		{
+			name: "inherited sharing keyword",
+			input: `public inherited sharing class Stack<T> {
+    private List<T> items;
+}`,
+			expectedCount:  1,
+			expectedClass:  "Stack",
+			expectedParams: []string{"T"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -363,6 +390,67 @@ public class Bar<U> {
 					if i < len(def.TypeParams) && def.TypeParams[i] != param {
 						t.Errorf("expected param[%d]=%s, got %s", i, param, def.TypeParams[i])
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestFindGenericClassDefinitions_InvalidSharing(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedCount int // Should be 0 for invalid patterns
+	}{
+		{
+			name: "invalid: with without sharing",
+			input: `public with class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount: 0, // Should not be detected
+		},
+		{
+			name: "invalid: without without sharing",
+			input: `public without class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount: 0, // Should not be detected
+		},
+		{
+			name: "invalid: inherited without sharing",
+			input: `public inherited class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount: 0, // Should not be detected
+		},
+		{
+			name: "invalid: sharing without prefix",
+			input: `public sharing class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount: 0, // Should not be detected
+		},
+		{
+			name: "invalid: random word before sharing",
+			input: `public foo sharing class Queue<T> {
+    private List<T> items;
+}`,
+			expectedCount: 0, // Should not be detected
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(tt.input)
+			defs, err := p.FindGenericClassDefinitions()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(defs) != tt.expectedCount {
+				t.Errorf("expected %d definitions, got %d", tt.expectedCount, len(defs))
+				for key := range defs {
+					t.Logf("Found: %s", key)
 				}
 			}
 		})

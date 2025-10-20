@@ -633,8 +633,12 @@ func (t *Transpiler) instantiateTemplate(template *parser.GenericClassDef, insta
 	// Replace template class name with concrete name (affects constructors too)
 	output = replaceTypeParameter(output, template.ClassName, concreteName)
 
-	// Build final class with concrete name
-	return fmt.Sprintf("public class %s %s", concreteName, output)
+	// Build final class with concrete name, preserving modifiers
+	modifiers := template.Modifiers
+	if modifiers == "" {
+		modifiers = "public" // Default to public if no modifiers specified
+	}
+	return fmt.Sprintf("%s class %s %s", modifiers, concreteName, output)
 }
 
 // replaceTypeParameter replaces all occurrences of param with concreteType, respecting word boundaries.

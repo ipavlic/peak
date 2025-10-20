@@ -1,0 +1,36 @@
+public class Optional<T> {
+    private T value;
+    private Boolean hasValue;
+
+    public Optional() {
+        this.hasValue = false;
+    }
+
+    public Optional(T value) {
+        this.value = value;
+        this.hasValue = value != null;
+    }
+
+    public static Optional<T> of(T value) {
+        return new Optional<T>(value);
+    }
+
+    public static Optional<T> empty() {
+        return new Optional<T>();
+    }
+
+    public Boolean isPresent() {
+        return hasValue;
+    }
+
+    public T get() {
+        if (!hasValue) {
+            throw new IllegalStateException('No value present');
+        }
+        return value;
+    }
+
+    public T orElse(T defaultValue) {
+        return hasValue ? value : defaultValue;
+    }
+}

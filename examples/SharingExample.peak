@@ -1,0 +1,22 @@
+public with sharing class SecureQueue<T> {
+    private List<T> items;
+
+    public SecureQueue() {
+        this.items = new List<T>();
+    }
+
+    public void enqueue(T item) {
+        items.add(item);
+    }
+
+    public T dequeue() {
+        if (items.isEmpty()) {
+            return null;
+        }
+        return items.remove(0);
+    }
+
+    public Integer size() {
+        return items.size();
+    }
+}

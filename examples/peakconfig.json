@@ -2,13 +2,7 @@
   "compilerOptions": {
     "instantiate": {
       "classes": {
-        "Queue": ["Integer", "String", "Boolean", "Decimal"],
-        "Dict": ["String,Integer", "Integer,String", "Boolean,String"]
-      },
-      "methods": {
-        "Repository.get": ["Account", "Contact", "String"],
-        "Repository.put": ["Account", "Contact"],
-        "Repository.getOrDefault": ["String", "Integer"]
+        "Optional": ["Double", "Decimal", "SObject"]
       }
     }
   }
