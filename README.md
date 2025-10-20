@@ -182,12 +182,7 @@ Create `peakconfig.json` in your source directory to customize behavior:
 {
   "compilerOptions": {
     "outDir": "build/classes",
-    "instantiate": [
-      "Queue<Boolean>",
-      "Optional<Double>",
-      "Dict<String, Integer>"
-    ],
-    "instantiateSpec": {
+    "instantiate": {
       "classes": {
         "Queue": ["Integer", "String"],
         "Optional": ["Double", "Decimal"]
@@ -206,7 +201,6 @@ Create `peakconfig.json` in your source directory to customize behavior:
 
 - `outDir` - Output directory for generated files (can be overridden by `--out-dir` flag)
 - `instantiate` - List of generic instantiations to always generate, even if not used in code
-- `instantiateSpec` - Structured instantiation for both classes and methods:
   - `classes` - Map of template names to type arguments (e.g., `"Queue": ["Integer", "String"]`)
   - `methods` - Map of method keys to type arguments (e.g., `"ClassName.methodName": ["String", "Decimal"]`)
     - For methods with multiple type parameters, use comma-separated types (e.g., `"String,String"` for `<K,V>` with both as String)
