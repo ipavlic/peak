@@ -1659,3 +1659,66 @@ func TestExtractClassName(t *testing.T) {
 		})
 	}
 }
+
+func TestTranspileFiles_NoSelfReference(t *testing.T) {
+	// Regression test for issue where Optional<T> in the template was treated as a usage,
+	// generating an unwanted OptionalT.cls file
+	tr := NewTranspiler(nil)
+	files := map[string]string{
+		"Optional.peak": `public class Optional<T> {
+    private T value;
+
+    public Optional(T val) {
+        this.value = val;
+    }
+
+    public static Optional<T> of(T value) {
+        return new Optional<T>(value);
+    }
+
+    public Optional<T> getSelf() {
+        return this;
+    }
+
+    public T getValue() {
+        return this.value;
+    }
+}`,
+		"OptionalTest.peak": `public class OptionalTest {
+    public void test() {
+        Optional<String> opt = Optional<String>.of('hello');
+        String val = opt.getValue();
+    }
+}`,
+	}
+
+	results, err := tr.TranspileFiles(files)
+	if err != nil {
+		t.Fatalf("TranspileFiles failed: %v", err)
+	}
+
+	// Should generate OptionalString.cls (from usage) but NOT OptionalT.cls
+	var foundOptionalString, foundOptionalT bool
+	for _, result := range results {
+		if strings.Contains(result.OutputPath, "OptionalString.cls") {
+			foundOptionalString = true
+			// Verify content is correct
+			if !strings.Contains(result.Content, "public static OptionalString of(String value)") {
+				t.Error("OptionalString should have concrete static method")
+			}
+			if !strings.Contains(result.Content, "public OptionalString getSelf()") {
+				t.Error("OptionalString.getSelf() should return OptionalString, not OptionalT")
+			}
+		}
+		if strings.Contains(result.OutputPath, "OptionalT.cls") {
+			foundOptionalT = true
+		}
+	}
+
+	if !foundOptionalString {
+		t.Error("OptionalString.cls should be generated from usage")
+	}
+	if foundOptionalT {
+		t.Error("OptionalT.cls should NOT be generated (template self-reference bug)")
+	}
+}

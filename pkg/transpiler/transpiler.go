@@ -309,7 +309,19 @@ func (t *Transpiler) collectUsages(files map[string]string, results *[]FileResul
 	for path, content := range files {
 		contentToScan := t.getContentToScan(content)
 
-		p := parser.NewParser(contentToScan)
+		// Get the template definition for this file (if any)
+		var currentTemplate *parser.GenericClassDef
+		p := parser.NewParser(content)
+		defs, _ := p.FindGenericClassDefinitions()
+		if len(defs) > 0 {
+			// Assume one template per file
+			for _, def := range defs {
+				currentTemplate = def
+				break
+			}
+		}
+
+		p = parser.NewParser(contentToScan)
 		p.SetFileName(path)
 		generics, err := p.FindGenerics()
 		if err != nil {
@@ -320,11 +332,50 @@ func (t *Transpiler) collectUsages(files map[string]string, results *[]FileResul
 
 		for original, expr := range generics {
 			if _, isTemplate := t.templates[expr.BaseType]; isTemplate {
+				// Skip if this is a self-reference in a template with its own type parameters
+				// e.g., "Optional<T>" in the Optional<T> template file
+				if currentTemplate != nil && expr.BaseType == currentTemplate.ClassName {
+					if t.isSelfReference(expr, currentTemplate.TypeParams) {
+						continue
+					}
+				}
 				t.usages[original] = expr
 			}
 		}
 	}
 	return hasErrors
+}
+
+// isSelfReference checks if a generic expression only uses the template's type parameters.
+// For example, in a template "Optional<T>", the reference "Optional<T>" is a self-reference,
+// but "Optional<String>" is an actual instantiation.
+func (t *Transpiler) isSelfReference(expr *parser.GenericExpr, typeParams []string) bool {
+	// Create a set of type parameters for fast lookup
+	paramSet := make(map[string]bool)
+	for _, param := range typeParams {
+		paramSet[param] = true
+	}
+
+	// Check if all type arguments are template parameters
+	return t.allTypeArgsAreParams(expr.TypeArgs, paramSet)
+}
+
+// allTypeArgsAreParams recursively checks if all type arguments are template parameters.
+func (t *Transpiler) allTypeArgsAreParams(typeArgs []parser.GenericExpr, paramSet map[string]bool) bool {
+	for _, arg := range typeArgs {
+		if arg.IsSimple {
+			// Simple type - check if it's a type parameter
+			if !paramSet[arg.BaseType] {
+				return false // This is a concrete type, not a parameter
+			}
+		} else {
+			// Complex type (e.g., List<T>) - recursively check its type arguments
+			if !t.allTypeArgsAreParams(arg.TypeArgs, paramSet) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // getContentToScan determines what content to scan for generic usages
