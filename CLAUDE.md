@@ -127,14 +127,25 @@ Salesforce's built-in generics (List, Set, Map) must ALWAYS be preserved as full
 
 ### 3. Compilation Process
 
-**Four-Phase Compilation**:
+**Compilation Phases**:
 
 1. **Phase 1**: Collect all generic class definitions (templates)
    - Parse each file for `class Name<T>` patterns
    - Store templates in a map by class name
    - Track file paths for each template
 
-2. **Phase 2**: Collect all generic instantiations (with transitive support)
+2. **Phase 1.1**: Collect all generic method definitions
+   - Parse each file for `<T> methodName()` patterns
+   - Store method templates by "ClassName.methodName" key
+   - Supports both template classes and regular classes with generic methods
+
+3. **Phase 1.5**: Process forced instantiations from config
+   - Load `peakconfig.json` if present
+   - Process both class and method instantiations from `instantiate` config
+   - Validate that templates exist for all configured instantiations
+   - Add configured instantiations to the usages map
+
+4. **Phase 2**: Collect all generic instantiations (with transitive support)
    - Find all uses of generics (e.g., `Queue<Integer>`)
    - **Critical**: For template files, scan only class bodies (not declarations)
    - This prevents `class Queue<T>` from being treated as a usage
@@ -142,23 +153,95 @@ Salesforce's built-in generics (List, Set, Map) must ALWAYS be preserved as full
    - Only track usages of defined templates
    - Ignore built-in types (List, Set, Map)
 
-3. **Phase 3**: Generate output for each file
+5. **Phase 3**: Generate output for each file
    - Template files are skipped (no .cls generated)
    - Non-template files have generic references replaced with concrete names
    - Uses `replaceGenericUsages` helper to eliminate code duplication
+   - For files with configured method instantiations, insert concrete methods
 
-4. **Phase 4**: Generate concrete class files
+6. **Phase 4**: Generate concrete class files
    - For each unique instantiation, substitute type parameters
    - Uses three-pass substitution (see above)
    - Generate .cls file with concrete types in same directory as template
 
-### 4. Error Handling Strategy
+### 4. Configuration System
+
+Peak supports optional configuration via `peakconfig.json` in the source directory:
+
+```json
+{
+  "compilerOptions": {
+    "outDir": "build/classes",
+    "verbose": false,
+    "instantiate": {
+      "classes": {
+        "Queue": ["Integer", "String", "Boolean"],
+        "Dict": ["String,Integer", "Integer,String"]
+      },
+      "methods": {
+        "Repository.get": ["Account", "Contact", "String"],
+        "Repository.put": ["Account", "Contact"]
+      }
+    }
+  }
+}
+```
+
+**Configuration Structure**:
+
+- **`outDir`**: Output directory for generated .cls files (relative to source directory)
+  - Default: Co-located with source .peak files
+  - Can be overridden by `--out-dir` CLI flag
+
+- **`verbose`**: Enable detailed logging (default: false)
+
+- **`instantiate`**: Force generation of specific class and method instantiations
+  - **`classes`**: Map of template names to arrays of type arguments
+    - Each array element is a type argument string (comma-separated for multiple params)
+    - Example: `"Queue": ["Integer", "String"]` generates `QueueInteger.cls` and `QueueString.cls`
+    - Example: `"Dict": ["String,Integer"]` generates `DictStringInteger.cls`
+
+  - **`methods`**: Map of "ClassName.methodName" keys to arrays of type arguments
+    - Each array element is a single type argument (or comma-separated for multiple type params)
+    - Example: `"Repository.get": ["Account", "Contact"]` generates `getAccount()` and `getContact()` methods
+    - Generated methods are inserted into the class body with proper naming
+
+**Configuration Loading Priority**:
+1. CLI flags (highest priority)
+2. `peakconfig.json` in source directory
+3. Defaults (co-located output, no forced instantiations)
+
+**Configuration Types** (pkg/config/config.go):
+
+```go
+type Instantiate struct {
+    Classes map[string][]string `json:"classes,omitempty"`
+    Methods map[string][]string `json:"methods,omitempty"`
+}
+
+type CompilerOptions struct {
+    OutDir      string       `json:"outDir,omitempty"`
+    Verbose     bool         `json:"verbose,omitempty"`
+    Instantiate *Instantiate `json:"instantiate,omitempty"`
+}
+
+type Config struct {
+    SourceDir   string
+    OutDir      string
+    Watch       bool
+    Verbose     bool
+    Instantiate *Instantiate
+}
+```
+
+### 5. Error Handling Strategy
 
 **Validation Points**:
 - Type parameter parsing (single-letter check)
 - Syntax error detection (`<<`, `>>`)
 - Duplicate parameter check
 - Template/usage mismatch
+- Configuration validation (templates exist for configured instantiations)
 
 **Error Propagation**:
 ```go
@@ -169,7 +252,7 @@ type FileResult struct {
 ```
 Errors are captured per-file and reported during output generation, allowing partial compilation.
 
-### 5. File Watching Implementation
+### 6. File Watching Implementation
 
 **Debouncing Strategy**:
 ```go
@@ -188,7 +271,7 @@ if info.IsDir() && strings.HasPrefix(info.Name(), ".") && path != root {
 ```
 Avoids watching `.git`, `.vscode`, etc.
 
-### 6. Built-in Type Handling
+### 7. Built-in Type Handling
 
 **Preserving Apex Native Generics**:
 ```go
@@ -203,10 +286,10 @@ func isBuiltInGeneric(typeName string) bool {
 ```
 Apex's native generics remain unchanged; only custom templates trigger concrete class generation.
 
-### 7. Code Reusability: Helper Methods
+### 8. Code Reusability: Helper Methods
 
 **replaceGenericUsages Helper**:
-To eliminate code duplication between Phase 3 (file transpilation) and Pass 2 (template instantiation), a shared helper method was extracted:
+To eliminate code duplication between Phase 5 (file transpilation) and Pass 2 (template instantiation), a shared helper method was extracted:
 
 ```go
 func (t *Transpiler) replaceGenericUsages(content string, generics map[string]*parser.GenericExpr) string {
@@ -234,7 +317,7 @@ func (t *Transpiler) replaceGenericUsages(content string, generics map[string]*p
 
 This method is used both in `transpileFile` (replacing generics in non-template files) and in `instantiateTemplate` Pass 2 (replacing nested generics after type parameter substitution).
 
-### 8. Name Generation
+### 9. Name Generation
 
 **Concatenation Strategy**:
 - `Queue<Integer>` → `QueueInteger`
@@ -371,26 +454,33 @@ Example files demonstrate:
 ```
 peak/
 ├── cmd/
-│   └── peak/              # CLI entry point
-│       ├── main.go        # Main program, mode detection
-│       ├── main_multifile.go  # Directory processing logic
-│       └── watch.go       # File watching mode
+│   └── peak/                          # CLI entry point
+│       ├── main.go                    # Main program, flag parsing
+│       ├── compile.go                 # Directory compilation logic
+│       └── watch.go                   # File watching mode
 ├── pkg/
-│   ├── parser/            # Generic parsing logic
-│   │   ├── parser.go      # Parser implementation
-│   │   └── parser_test.go # Parser tests
-│   └── transpiler/        # Transpilation logic
-│       └── transpiler.go  # Transpiler implementation
-├── examples/              # Example .peak files
-│   ├── Queue.peak         # Single type param template
-│   ├── Dict.peak          # Multiple type param template
-│   ├── QueueExample.peak  # Simple template usage
+│   ├── config/                        # Configuration management
+│   │   └── config.go                  # Config loading, peakconfig.json support
+│   ├── parser/                        # Generic parsing logic
+│   │   ├── parser.go                  # Parser implementation
+│   │   └── parser_test.go             # Parser tests
+│   └── transpiler/                    # Transpilation logic
+│       ├── transpiler.go              # Transpiler implementation
+│       └── transpiler_test.go         # Transpiler tests
+├── examples/                          # Example .peak files
+│   ├── Queue.peak                     # Single type param template
+│   ├── Dict.peak                      # Multiple type param template
+│   ├── Repository.peak                # Generic methods example
+│   ├── QueueExample.peak              # Simple template usage
 │   ├── NestedGenericsExample.peak     # Nested generics (Queue<List<T>>)
-│   ├── MultiParametersExample.peak   # Multiple type parameters (Dict<K,V>)
-│   └── ComplexExample.peak            # Complex patterns (Dict<K, Queue<V>>)
-├── go.mod
-├── README.md              # User documentation
-└── CLAUDE.md             # This file - development docs
+│   ├── MultiParametersExample.peak    # Multiple type parameters (Dict<K,V>)
+│   ├── ComplexExample.peak            # Complex patterns (Dict<K, Queue<V>>)
+│   └── peakconfig.json                # Example configuration
+├── Makefile                           # Build and development commands
+├── go.mod                             # Go module definition
+├── .gitignore                         # Git ignore rules (includes examples/*.cls)
+├── README.md                          # User documentation
+└── CLAUDE.md                          # This file - development docs
 ```
 
 ## Design Patterns Used
@@ -473,6 +563,59 @@ public class QueueInteger {
 }
 ```
 
+## Development Workflow
+
+### Makefile Commands
+
+The project includes a Makefile with convenient commands:
+
+```bash
+make help            # Show all available commands
+make build           # Build the peak binary
+make test            # Run all tests with coverage
+make coverage        # Generate HTML coverage report
+make clean           # Remove build artifacts
+make clean-examples  # Remove generated .cls files from examples/
+```
+
+### Cleaning Generated Files
+
+Generated `.cls` files in the examples directory are gitignored and should be cleaned regularly:
+
+```bash
+# Clean examples directory
+make clean-examples
+
+# Or manually
+rm -f examples/*.cls
+```
+
+The `.gitignore` includes:
+```
+examples/*.cls
+```
+
+This prevents accidentally committing generated files while allowing you to test the transpiler.
+
+### Development Cycle
+
+Typical development workflow:
+
+1. **Make changes** to source code
+2. **Run tests**: `make test`
+3. **Build**: `make build`
+4. **Clean examples**: `make clean-examples`
+5. **Test on examples**: `./peak examples/`
+6. **Verify output**: Check generated `.cls` files
+7. **Clean up**: `make clean-examples`
+8. **Commit changes** (generated files are gitignored)
+
+### Testing Strategy
+
+- **Unit tests**: Test individual components (parser, transpiler)
+- **Integration tests**: Test complete transpilation workflows
+- **Example files**: Real-world usage patterns in `examples/`
+
 ## Conclusion
 
 This transpiler demonstrates that you don't need to fully parse a language to extend it. By focusing on a specific pattern (generic syntax) and using minimal intervention, we achieved:
@@ -482,5 +625,6 @@ This transpiler demonstrates that you don't need to fully parse a language to ex
 - Zero runtime overhead (everything is compile-time)
 - Future-proof design (works with any Apex version)
 - Fast compilation (no heavy AST processing)
+- Configuration-driven instantiation (classes and methods)
 
 The key is identifying the smallest set of syntax that needs transformation and leaving everything else alone.

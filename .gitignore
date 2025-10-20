@@ -9,6 +9,9 @@ coverage.out
 peak
 *.exe
 
+# Generated Apex files in examples
+examples/*.cls
+
 # Added by Illuminated Cloud
 .sf/
 .sfdx/
