@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewTranspiler(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	if tr == nil {
 		t.Fatal("NewTranspiler returned nil")
 	}
@@ -24,7 +24,7 @@ func TestNewTranspiler(t *testing.T) {
 }
 
 func TestTranspileFiles_SimpleTemplate(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Queue.peak": `public class Queue<T> {
     private List<T> items;
@@ -104,7 +104,7 @@ func TestTranspileFiles_SimpleTemplate(t *testing.T) {
 }
 
 func TestTranspileFiles_MultipleTypeParameters(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Dict.peak": `public class Dict<K, V> {
     private Map<K, V> items;
@@ -148,7 +148,7 @@ func TestTranspileFiles_TransitiveDependencies(t *testing.T) {
 	// both concrete classes are generated correctly
 	// Example: Dict<String, Queue<Integer>> should generate both
 	// DictStringQueueInteger and QueueInteger
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Queue.peak": `public class Queue<T> {
     private List<T> items;
@@ -199,7 +199,7 @@ func TestTranspileFiles_NestedGenerics(t *testing.T) {
 	// Tests that nested built-in generics are properly preserved.
 	// When Queue<List<Integer>> is instantiated, T should be replaced with "List<Integer>",
 	// so List<T> becomes List<List<Integer>>, NOT List<ListInteger>.
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Queue.peak": `public class Queue<T> {
     private List<T> items;
@@ -236,7 +236,7 @@ func TestTranspileFiles_NestedGenerics(t *testing.T) {
 }
 
 func TestTranspileFiles_ParseError(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Bad.peak": `public class Bad<<T>> {
 }`,
@@ -257,7 +257,7 @@ func TestTranspileFiles_ParseError(t *testing.T) {
 }
 
 func TestTranspileFiles_NoTemplates(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Example.peak": `public class Example {
     private Integer x;
@@ -281,7 +281,7 @@ func TestTranspileFiles_NoTemplates(t *testing.T) {
 }
 
 func TestTranspileFiles_BuiltInGenerics(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Example.peak": `public class Example {
     private List<String> list;
@@ -410,7 +410,7 @@ func TestIsIdentifierChar(t *testing.T) {
 
 func TestReplaceGenericUsages(t *testing.T) {
 	// Create a transpiler with some templates
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	tr.templates["Queue"] = &parser.GenericClassDef{
 		ClassName:  "Queue",
 		TypeParams: []string{"T"},
@@ -489,7 +489,7 @@ func TestReplaceGenericUsages(t *testing.T) {
 }
 
 func TestInstantiateTemplate(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 
 	tests := []struct {
 		name          string
@@ -576,7 +576,7 @@ func TestInstantiateTemplate(t *testing.T) {
 }
 
 func TestInstantiateTemplate_TypeParameterMismatch(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	template := &parser.GenericClassDef{
 		ClassName:  "Queue",
 		TypeParams: []string{"T"},
@@ -602,7 +602,7 @@ func TestInstantiateTemplate_TypeParameterMismatch(t *testing.T) {
 func TestTranspileFiles_ComplexNestedGenerics(t *testing.T) {
 	// Tests that built-in generics (List, Set, Map) are preserved while
 	// custom templates (Queue, Wrapper) are correctly converted, even in complex nesting.
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Wrapper.peak": `public class Wrapper<T> {
     private T value;
@@ -702,7 +702,7 @@ func TestTranspileFiles_ComplexNestedGenerics(t *testing.T) {
 }
 
 func TestTranspileFile(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	tr.templates["Queue"] = &parser.GenericClassDef{
 		ClassName:  "Queue",
 		TypeParams: []string{"T"},
@@ -775,7 +775,7 @@ func TestTranspileFile(t *testing.T) {
 }
 
 func TestRecordError(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	results := []FileResult{}
 
 	// Test adding new error
@@ -813,7 +813,7 @@ func TestRecordError(t *testing.T) {
 }
 
 func TestCollectUsages_WithValidUsages(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	results := []FileResult{}
 
 	// First collect templates
@@ -856,7 +856,7 @@ func TestCollectUsages_WithValidUsages(t *testing.T) {
 }
 
 func TestTranspileFile_ParseErrors(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 
 	t.Run("error finding generic class definitions", func(t *testing.T) {
 		result, err := tr.transpileFile("Bad.peak", "public class Bad<<T>> {}")
@@ -874,7 +874,7 @@ func TestTranspileFile_ParseErrors(t *testing.T) {
 }
 
 func TestGetContentToScan(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 
 	tests := []struct {
 		name        string
@@ -921,7 +921,7 @@ func TestGetContentToScan(t *testing.T) {
 }
 
 func TestGenerateConcreteClasses_NoTemplate(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	// Add a usage for a template that doesn't exist
 	tr.usages["Queue<Integer>"] = &parser.GenericExpr{
 		BaseType: "Queue",
@@ -937,7 +937,7 @@ func TestGenerateConcreteClasses_NoTemplate(t *testing.T) {
 }
 
 func TestTranspileFiles_MultipleParseErrors(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	files := map[string]string{
 		"Bad1.peak": `public class Bad1<<T>> {}`,
 		"Bad2.peak": `public class Bad2<T, T> {}`,
@@ -968,7 +968,7 @@ func TestTranspileFiles_MultipleParseErrors(t *testing.T) {
 }
 
 func TestCollectTemplates_Errors(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	results := []FileResult{}
 
 	files := map[string]string{
@@ -1001,7 +1001,7 @@ func TestCollectTemplates_Errors(t *testing.T) {
 }
 
 func TestReplaceGenericUsages_EmptyGenerics(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	content := "public class Example { private Integer x; }"
 	generics := map[string]*parser.GenericExpr{}
 
@@ -1013,7 +1013,7 @@ func TestReplaceGenericUsages_EmptyGenerics(t *testing.T) {
 }
 
 func TestReplaceGenericUsages_BuiltInIgnored(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	// Don't add List to templates - it's built-in
 	content := "public class Example { private List<String> list; }"
 	generics := map[string]*parser.GenericExpr{
@@ -1037,7 +1037,7 @@ func TestReplaceGenericUsages_BuiltInIgnored(t *testing.T) {
 func TestTranspileFiles_WithErrorInPhase3(t *testing.T) {
 	// Test a scenario where Phase 3 (transpileFile) encounters an error
 	// This is difficult to trigger naturally, so we test the error recording path explicitly
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 
 	// Create a file that will pass template collection but fail in transpilation
 	files := map[string]string{
@@ -1063,7 +1063,7 @@ func TestTranspileFiles_WithErrorInPhase3(t *testing.T) {
 }
 
 func TestReplaceGenericUsages_PreservesComments(t *testing.T) {
-	tr := NewTranspiler()
+	tr := NewTranspiler(nil)
 	tr.templates["Queue"] = &parser.GenericClassDef{
 		ClassName:  "Queue",
 		TypeParams: []string{"T"},

@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ipavlic/peak/pkg/config"
 	"github.com/ipavlic/peak/pkg/parser"
 	"github.com/ipavlic/peak/pkg/transpiler"
 )
 
 // runFolder compiles all .peak files in the specified directory.
-func runFolder(dir string) error {
-	return compileDirectory(dir)
+func runFolder(dir string, outDir string) error {
+	return compileDirectory(dir, outDir)
 }
 
 const (
@@ -23,20 +24,28 @@ const (
 )
 
 // compileDirectory compiles all .peak files in the specified directory.
-func compileDirectory(dir string) error {
+func compileDirectory(dir string, outDir string) error {
 	startTime := time.Now()
 
+	// Load configuration
+	cfg, err := config.LoadConfig(dir, config.CLIFlags{
+		OutDir: outDir,
+	})
+	if err != nil {
+		return fmt.Errorf("error loading configuration: %w", err)
+	}
+
 	// Find all .peak files recursively
-	peakFiles, err := findPeakFiles(dir)
+	peakFiles, err := findPeakFiles(cfg.SourceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("directory '%s' does not exist\n\nTip: Check the directory path and try again", dir)
+			return fmt.Errorf("directory '%s' does not exist\n\nTip: Check the directory path and try again", cfg.SourceDir)
 		}
 		return fmt.Errorf("error finding .peak files: %w", err)
 	}
 
 	if len(peakFiles) == 0 {
-		return fmt.Errorf("no .peak files found in '%s'\n\nTip: Make sure the directory contains .peak source files", dir)
+		return fmt.Errorf("no .peak files found in '%s'\n\nTip: Make sure the directory contains .peak source files", cfg.SourceDir)
 	}
 
 	// Read all input files
@@ -49,8 +58,13 @@ func compileDirectory(dir string) error {
 		files[peakFile] = string(content)
 	}
 
+	// Create output path resolver function
+	outputPathFn := func(sourcePath string) (string, error) {
+		return cfg.ResolveOutputPath(sourcePath, apexExtension)
+	}
+
 	// Transpile all files
-	tr := transpiler.NewTranspiler()
+	tr := transpiler.NewTranspiler(outputPathFn)
 	results, err := tr.TranspileFiles(files)
 	if err != nil {
 		return fmt.Errorf("error transpiling: %w", err)
@@ -75,6 +89,12 @@ func compileDirectory(dir string) error {
 			skippedTemplates++
 			fmt.Fprintf(os.Stderr, "Skipped template: %s\n", result.OriginalPath)
 			continue
+		}
+
+		// Ensure output directory exists
+		outputDir := filepath.Dir(result.OutputPath)
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			return fmt.Errorf("error creating output directory %s: %w", outputDir, err)
 		}
 
 		if err := os.WriteFile(result.OutputPath, []byte(result.Content), filePermission); err != nil {

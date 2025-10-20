@@ -30,14 +30,24 @@ type Transpiler struct {
 	templates     map[string]*parser.GenericClassDef // Generic class definitions
 	templatePaths map[string]string                  // Template name to file path
 	usages        map[string]*parser.GenericExpr     // Generic instantiations
+	outputPathFn  func(string) (string, error)       // Function to resolve output paths
 }
 
-// NewTranspiler creates a new transpiler
-func NewTranspiler() *Transpiler {
+// NewTranspiler creates a new transpiler with a custom output path resolver.
+// If outputPathFn is nil, uses default co-located behavior.
+func NewTranspiler(outputPathFn func(string) (string, error)) *Transpiler {
+	if outputPathFn == nil {
+		// Default: co-located .cls files (backwards compatible)
+		outputPathFn = func(sourcePath string) (string, error) {
+			return strings.TrimSuffix(sourcePath, ".peak") + ".cls", nil
+		}
+	}
+
 	return &Transpiler{
 		templates:     make(map[string]*parser.GenericClassDef),
 		templatePaths: make(map[string]string),
 		usages:        make(map[string]*parser.GenericExpr),
+		outputPathFn:  outputPathFn,
 	}
 }
 
@@ -180,8 +190,11 @@ func (t *Transpiler) transpileFile(path, content string) (FileResult, error) {
 
 	output := t.replaceGenericUsages(content, generics)
 
-	// Generate output path
-	outputPath := strings.TrimSuffix(path, ".peak") + ".cls"
+	// Generate output path using configured resolver
+	outputPath, err := t.outputPathFn(path)
+	if err != nil {
+		return FileResult{OriginalPath: path, Error: err}, err
+	}
 
 	return FileResult{
 		OriginalPath: path,
@@ -288,12 +301,21 @@ func (t *Transpiler) generateConcreteClasses() []FileResult {
 
 		// Get the directory where the template is located
 		templatePath := t.templatePaths[expr.BaseType]
-		templateDir := filepath.Dir(templatePath)
 
 		// Generate concrete class content
 		content := t.instantiateTemplate(template, expr)
 		concreteName := parser.GenerateConcreteClassName(expr)
-		outputPath := filepath.Join(templateDir, concreteName+".cls")
+
+		// Create a virtual path for the concrete class (in same dir as template)
+		templateDir := filepath.Dir(templatePath)
+		virtualPath := filepath.Join(templateDir, concreteName+".peak")
+
+		// Resolve output path using configured resolver
+		outputPath, err := t.outputPathFn(virtualPath)
+		if err != nil {
+			// Fall back to template directory if path resolution fails
+			outputPath = filepath.Join(templateDir, concreteName+".cls")
+		}
 
 		results = append(results, FileResult{
 			OriginalPath: "",
