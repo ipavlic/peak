@@ -188,6 +188,21 @@ The `--out-dir` flag overrides the config file.
 
 ## Features
 
+### Type Parameter Rules
+
+Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.):
+
+```apex
+✓ class Queue<T>              // Good - single letter
+✓ class Dict<K, V>            // Good - multiple single letters
+✗ class Queue<Type>           // Error - multi-letter not allowed
+✗ class Dict<T, T>            // Error - duplicate parameters
+```
+
+### Built-in Generics Preserved
+
+Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes.
+
 ### Multiple Type Parameters
 
 Define classes with multiple type parameters:
@@ -223,21 +238,6 @@ Dict<String, Queue<Account>> accountQueues = new Dict<String, Queue<Account>>();
 ```
 
 Generates concrete classes like `QueueListInteger.cls` and `DictStringQueueAccount.cls`.
-
-### Built-in Generics Preserved
-
-Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes.
-
-### Type Parameter Rules
-
-Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.):
-
-```apex
-✓ class Queue<T>              // Good - single letter
-✓ class Dict<K, V>            // Good - multiple single letters
-✗ class Queue<Type>           // Error - multi-letter not allowed
-✗ class Dict<T, T>            // Error - duplicate parameters
-```
 
 ### Valid Generic Expressions
 
