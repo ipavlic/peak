@@ -1,14 +1,9 @@
 {
   "compilerOptions": {
-    "instantiate": [
-      "Queue<Boolean>",
-      "Queue<Decimal>",
-      "Dict<Boolean, String>"
-    ],
-    "instantiateSpec": {
+    "instantiate": {
       "classes": {
-        "Queue": ["Integer", "String"],
-        "Dict": ["String,Integer", "Integer,String"]
+        "Queue": ["Integer", "String", "Boolean", "Decimal"],
+        "Dict": ["String,Integer", "Integer,String", "Boolean,String"]
       },
       "methods": {
         "Repository.get": ["Account", "Contact", "String"],

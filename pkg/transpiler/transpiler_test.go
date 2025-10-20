@@ -1110,23 +1110,9 @@ func TestReplaceGenericUsages_PreservesComments(t *testing.T) {
 	}
 }
 
-func TestSetInstantiations(t *testing.T) {
+func TestSetInstantiate(t *testing.T) {
 	tr := NewTranspiler(nil)
-	instantiations := []string{"Queue<Boolean>", "Optional<Double>"}
-
-	tr.SetInstantiations(instantiations)
-
-	if len(tr.instantiations) != 2 {
-		t.Errorf("expected 2 instantiations, got %d", len(tr.instantiations))
-	}
-	if tr.instantiations[0] != "Queue<Boolean>" {
-		t.Errorf("expected first instantiation to be Queue<Boolean>, got %s", tr.instantiations[0])
-	}
-}
-
-func TestSetInstantiateSpec(t *testing.T) {
-	tr := NewTranspiler(nil)
-	spec := &config.InstantiateSpec{
+	spec := &config.Instantiate{
 		Classes: map[string][]string{
 			"Queue": {"Integer", "String"},
 		},
@@ -1135,16 +1121,16 @@ func TestSetInstantiateSpec(t *testing.T) {
 		},
 	}
 
-	tr.SetInstantiateSpec(spec)
+	tr.SetInstantiate(spec)
 
-	if tr.instantiateSpec == nil {
-		t.Fatal("instantiateSpec should be set")
+	if tr.instantiate == nil {
+		t.Fatal("instantiate should be set")
 	}
-	if len(tr.instantiateSpec.Classes) != 1 {
-		t.Errorf("expected 1 class in spec, got %d", len(tr.instantiateSpec.Classes))
+	if len(tr.instantiate.Classes) != 1 {
+		t.Errorf("expected 1 class in spec, got %d", len(tr.instantiate.Classes))
 	}
-	if len(tr.instantiateSpec.Methods) != 1 {
-		t.Errorf("expected 1 method in spec, got %d", len(tr.instantiateSpec.Methods))
+	if len(tr.instantiate.Methods) != 1 {
+		t.Errorf("expected 1 method in spec, got %d", len(tr.instantiate.Methods))
 	}
 }
 
@@ -1214,42 +1200,69 @@ func TestProcessInstantiations(t *testing.T) {
 		Body:       "{}",
 	}
 
+	// Add a method template
+	tr.methodTemplates["Repository.get"] = &parser.GenericMethodDef{
+		ClassName:  "Repository",
+		MethodName: "get",
+		TypeParams: []string{"T"},
+		Signature:  "public <T> T get(String key)",
+		Body:       "{ return (T) cache.get(key); }",
+	}
+
 	tests := []struct {
 		name            string
-		instantiations  []string
+		spec            *config.Instantiate
 		expectErrors    bool
 		expectedUsages  int
+		expectedMethods int
 	}{
 		{
-			name:            "valid instantiation",
-			instantiations:  []string{"Queue<Integer>"},
+			name: "valid class instantiation",
+			spec: &config.Instantiate{
+				Classes: map[string][]string{
+					"Queue": {"Integer"},
+				},
+			},
 			expectErrors:    false,
 			expectedUsages:  1,
+			expectedMethods: 0,
 		},
 		{
-			name:            "template not found",
-			instantiations:  []string{"NonExistent<String>"},
-			expectErrors:    true,
-			expectedUsages:  0,
-		},
-		{
-			name:            "invalid syntax",
-			instantiations:  []string{"Queue<<Bad>>"},
-			expectErrors:    true,
-			expectedUsages:  0,
-		},
-		{
-			name:            "empty list",
-			instantiations:  []string{},
+			name: "valid method instantiation",
+			spec: &config.Instantiate{
+				Methods: map[string][]string{
+					"Repository.get": {"Account", "Contact"},
+				},
+			},
 			expectErrors:    false,
 			expectedUsages:  0,
+			expectedMethods: 2,
+		},
+		{
+			name: "template not found",
+			spec: &config.Instantiate{
+				Classes: map[string][]string{
+					"NonExistent": {"String"},
+				},
+			},
+			expectErrors:    true,
+			expectedUsages:  0,
+			expectedMethods: 0,
+		},
+		{
+			name:            "nil spec",
+			spec:            nil,
+			expectErrors:    false,
+			expectedUsages:  0,
+			expectedMethods: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tr.instantiations = tt.instantiations
+			tr.instantiate = tt.spec
 			tr.usages = make(map[string]*parser.GenericExpr)
+			tr.methodUsages = make(map[string][]string)
 			results := []FileResult{}
 
 			hasErrors := tr.processInstantiations(&results)
@@ -1261,82 +1274,18 @@ func TestProcessInstantiations(t *testing.T) {
 			if len(tr.usages) != tt.expectedUsages {
 				t.Errorf("expected %d usages, got %d", tt.expectedUsages, len(tr.usages))
 			}
-		})
-	}
-}
 
-func TestProcessMethodInstantiations(t *testing.T) {
-	tr := NewTranspiler(nil)
-
-	// Add a method template
-	tr.methodTemplates["Repository.get"] = &parser.GenericMethodDef{
-		ClassName:  "Repository",
-		MethodName: "get",
-		TypeParams: []string{"T"},
-		Signature:  "public <T> T get(String key)",
-		Body:       "{ return (T) cache.get(key); }",
-	}
-
-	tests := []struct {
-		name           string
-		spec           *config.InstantiateSpec
-		expectErrors   bool
-		expectedUsages int
-	}{
-		{
-			name: "valid method instantiation",
-			spec: &config.InstantiateSpec{
-				Methods: map[string][]string{
-					"Repository.get": {"Account", "Contact"},
-				},
-			},
-			expectErrors:   false,
-			expectedUsages: 2,
-		},
-		{
-			name: "method not found",
-			spec: &config.InstantiateSpec{
-				Methods: map[string][]string{
-					"NonExistent.method": {"String"},
-				},
-			},
-			expectErrors:   true,
-			expectedUsages: 0,
-		},
-		{
-			name:           "empty spec",
-			spec:           nil,
-			expectErrors:   false,
-			expectedUsages: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tr.instantiateSpec = tt.spec
-			tr.methodUsages = make(map[string][]string)
-			results := []FileResult{}
-
-			hasErrors := tr.processMethodInstantiations(&results)
-
-			if tt.expectErrors != hasErrors {
-				t.Errorf("expected errors=%v, got %v", tt.expectErrors, hasErrors)
+			totalMethodUsages := 0
+			for _, usages := range tr.methodUsages {
+				totalMethodUsages += len(usages)
 			}
-
-			if tt.spec != nil && tt.spec.Methods != nil {
-				for methodKey := range tt.spec.Methods {
-					if usages, exists := tr.methodUsages[methodKey]; exists {
-						if len(usages) != tt.expectedUsages {
-							t.Errorf("expected %d usages for %s, got %d", tt.expectedUsages, methodKey, len(usages))
-						}
-					} else if !tt.expectErrors {
-						t.Errorf("expected usages for %s to exist", methodKey)
-					}
-				}
+			if totalMethodUsages != tt.expectedMethods {
+				t.Errorf("expected %d method usages, got %d", tt.expectedMethods, totalMethodUsages)
 			}
 		})
 	}
 }
+
 
 func TestInstantiateMethod(t *testing.T) {
 	tr := NewTranspiler(nil)
@@ -1558,7 +1507,11 @@ func TestCollectMethodTemplates(t *testing.T) {
 
 func TestTranspileFiles_WithForcedInstantiations(t *testing.T) {
 	tr := NewTranspiler(nil)
-	tr.SetInstantiations([]string{"Queue<Boolean>", "Queue<Decimal>"})
+	tr.SetInstantiate(&config.Instantiate{
+		Classes: map[string][]string{
+			"Queue": {"Boolean", "Decimal"},
+		},
+	})
 
 	files := map[string]string{
 		"Queue.peak": `public class Queue<T> {
@@ -1601,7 +1554,7 @@ func TestTranspileFiles_WithForcedInstantiations(t *testing.T) {
 
 func TestTranspileFiles_WithGenericMethods(t *testing.T) {
 	tr := NewTranspiler(nil)
-	tr.SetInstantiateSpec(&config.InstantiateSpec{
+	tr.SetInstantiate(&config.Instantiate{
 		Methods: map[string][]string{
 			"Repository.get": {"Account", "Contact"},
 		},

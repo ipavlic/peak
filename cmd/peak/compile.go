@@ -74,9 +74,8 @@ func compileDirectory(dir string, outDir string) error {
 
 	// Transpile all files
 	tr := transpiler.NewTranspiler(outputPathFn)
-	tr.SetInstantiations(cfg.Instantiate)
-	if cfg.InstantiateSpec != nil {
-		tr.SetInstantiateSpec(cfg.InstantiateSpec)
+	if cfg.Instantiate != nil {
+		tr.SetInstantiate(cfg.Instantiate)
 	}
 	results, err := tr.TranspileFiles(files)
 	if err != nil {

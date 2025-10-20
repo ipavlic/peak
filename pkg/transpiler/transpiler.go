@@ -29,13 +29,12 @@ type FileResult struct {
 // Transpiler handles transpilation of Peak files to Apex
 type Transpiler struct {
 	templates        map[string]*parser.GenericClassDef  // Generic class definitions
-	templatePaths    map[string]string                   // Template name to file path
-	methodTemplates  map[string]*parser.GenericMethodDef // Generic method definitions (keyed by "ClassName.methodName")
-	usages           map[string]*parser.GenericExpr      // Generic instantiations
-	outputPathFn     func(string) (string, error)        // Function to resolve output paths
-	instantiations   []string                            // Forced class instantiations from config (legacy)
-	instantiateSpec  *config.InstantiateSpec             // Structured instantiation config (classes + methods)
-	methodUsages     map[string][]string                 // Method instantiations: "ClassName.methodName" -> ["String", "Decimal", ...]
+	templatePaths   map[string]string                   // Template name to file path
+	methodTemplates map[string]*parser.GenericMethodDef // Generic method definitions (keyed by "ClassName.methodName")
+	usages          map[string]*parser.GenericExpr      // Generic instantiations
+	outputPathFn    func(string) (string, error)        // Function to resolve output paths
+	instantiate     *config.Instantiate                 // Structured instantiation config (classes + methods)
+	methodUsages    map[string][]string                 // Method instantiations: "ClassName.methodName" -> ["String", "Decimal", ...]
 }
 
 // NewTranspiler creates a new transpiler with a custom output path resolver.
@@ -51,25 +50,18 @@ func NewTranspiler(outputPathFn func(string) (string, error)) *Transpiler {
 	return &Transpiler{
 		templates:        make(map[string]*parser.GenericClassDef),
 		templatePaths:    make(map[string]string),
-		methodTemplates:  make(map[string]*parser.GenericMethodDef),
-		usages:           make(map[string]*parser.GenericExpr),
-		outputPathFn:     outputPathFn,
-		instantiations:   nil,
-		instantiateSpec:  nil,
-		methodUsages:     make(map[string][]string),
+		methodTemplates: make(map[string]*parser.GenericMethodDef),
+		usages:          make(map[string]*parser.GenericExpr),
+		outputPathFn:    outputPathFn,
+		instantiate:     nil,
+		methodUsages:    make(map[string][]string),
 	}
 }
 
-// SetInstantiations sets the list of forced instantiations from config (legacy format).
-// These will be validated and processed after templates are collected.
-func (t *Transpiler) SetInstantiations(instantiations []string) {
-	t.instantiations = instantiations
-}
-
-// SetInstantiateSpec sets the structured instantiation configuration.
+// SetInstantiate sets the structured instantiation configuration.
 // This supports both class and method instantiations.
-func (t *Transpiler) SetInstantiateSpec(spec *config.InstantiateSpec) {
-	t.instantiateSpec = spec
+func (t *Transpiler) SetInstantiate(spec *config.Instantiate) {
+	t.instantiate = spec
 }
 
 // TranspileFiles processes multiple files and generates concrete classes
@@ -84,9 +76,6 @@ func (t *Transpiler) TranspileFiles(files map[string]string) ([]FileResult, erro
 
 	// Phase 1.5: Process forced instantiations from config
 	hasErrors = t.processInstantiations(&results) || hasErrors
-
-	// Phase 1.6: Process forced method instantiations from config
-	hasErrors = t.processMethodInstantiations(&results) || hasErrors
 
 	// Phase 2: Collect all generic instantiations
 	hasErrors = t.collectUsages(files, &results) || hasErrors
@@ -225,48 +214,47 @@ func (t *Transpiler) extractClassName(content string) string {
 
 // processInstantiations validates and processes forced instantiations from config (Phase 1.5)
 func (t *Transpiler) processInstantiations(results *[]FileResult) bool {
-	if len(t.instantiations) == 0 {
+	if t.instantiate == nil {
 		return false
 	}
 
 	hasErrors := false
-	for _, instantiation := range t.instantiations {
-		// Parse the instantiation string to extract baseType and expression
-		expr, err := t.parseInstantiation(instantiation)
-		if err != nil {
-			hasErrors = true
-			*results = append(*results, FileResult{
-				OriginalPath: "peakconfig.json",
-				Error:        fmt.Errorf("invalid instantiation '%s': %w", instantiation, err),
-			})
-			continue
-		}
 
+	// Process class instantiations
+	for className, typeArgsList := range t.instantiate.Classes {
 		// Validate that the template exists
-		if _, exists := t.templates[expr.BaseType]; !exists {
+		if _, exists := t.templates[className]; !exists {
 			hasErrors = true
 			*results = append(*results, FileResult{
 				OriginalPath: "peakconfig.json",
-				Error:        fmt.Errorf("instantiation '%s' references undefined template '%s'", instantiation, expr.BaseType),
+				Error:        fmt.Errorf("class instantiation '%s' references undefined template", className),
 			})
 			continue
 		}
 
-		// Add to usages (same as discovered usages)
-		t.usages[instantiation] = expr
+		// Generate instantiation expressions for each type argument set
+		for _, typeArgs := range typeArgsList {
+			// Build the instantiation string (e.g., "Queue<Integer>")
+			instantiationStr := className + "<" + typeArgs + ">"
+
+			// Parse the instantiation string to create GenericExpr
+			expr, err := t.parseInstantiation(instantiationStr)
+			if err != nil {
+				hasErrors = true
+				*results = append(*results, FileResult{
+					OriginalPath: "peakconfig.json",
+					Error:        fmt.Errorf("invalid class instantiation '%s': %w", instantiationStr, err),
+				})
+				continue
+			}
+
+			// Add to usages (same as discovered usages)
+			t.usages[instantiationStr] = expr
+		}
 	}
 
-	return hasErrors
-}
-
-// processMethodInstantiations validates and processes method instantiations from config
-func (t *Transpiler) processMethodInstantiations(results *[]FileResult) bool {
-	if t.instantiateSpec == nil || len(t.instantiateSpec.Methods) == 0 {
-		return false
-	}
-
-	hasErrors := false
-	for methodKey, typeArgs := range t.instantiateSpec.Methods {
+	// Process method instantiations
+	for methodKey, typeArgs := range t.instantiate.Methods {
 		// Validate that the method template exists
 		if _, exists := t.methodTemplates[methodKey]; !exists {
 			hasErrors = true
