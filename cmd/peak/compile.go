@@ -74,6 +74,7 @@ func compileDirectory(dir string, outDir string) error {
 
 	// Transpile all files
 	tr := transpiler.NewTranspiler(outputPathFn)
+	tr.SetInstantiations(cfg.Instantiate)
 	results, err := tr.TranspileFiles(files)
 	if err != nil {
 		return fmt.Errorf("error transpiling: %w", err)

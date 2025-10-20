@@ -27,10 +27,11 @@ type FileResult struct {
 
 // Transpiler handles transpilation of Peak files to Apex
 type Transpiler struct {
-	templates     map[string]*parser.GenericClassDef // Generic class definitions
-	templatePaths map[string]string                  // Template name to file path
-	usages        map[string]*parser.GenericExpr     // Generic instantiations
-	outputPathFn  func(string) (string, error)       // Function to resolve output paths
+	templates      map[string]*parser.GenericClassDef // Generic class definitions
+	templatePaths  map[string]string                  // Template name to file path
+	usages         map[string]*parser.GenericExpr     // Generic instantiations
+	outputPathFn   func(string) (string, error)       // Function to resolve output paths
+	instantiations []string                           // Forced instantiations from config
 }
 
 // NewTranspiler creates a new transpiler with a custom output path resolver.
@@ -44,11 +45,18 @@ func NewTranspiler(outputPathFn func(string) (string, error)) *Transpiler {
 	}
 
 	return &Transpiler{
-		templates:     make(map[string]*parser.GenericClassDef),
-		templatePaths: make(map[string]string),
-		usages:        make(map[string]*parser.GenericExpr),
-		outputPathFn:  outputPathFn,
+		templates:      make(map[string]*parser.GenericClassDef),
+		templatePaths:  make(map[string]string),
+		usages:         make(map[string]*parser.GenericExpr),
+		outputPathFn:   outputPathFn,
+		instantiations: nil,
 	}
+}
+
+// SetInstantiations sets the list of forced instantiations from config.
+// These will be validated and processed after templates are collected.
+func (t *Transpiler) SetInstantiations(instantiations []string) {
+	t.instantiations = instantiations
 }
 
 // TranspileFiles processes multiple files and generates concrete classes
@@ -57,6 +65,9 @@ func (t *Transpiler) TranspileFiles(files map[string]string) ([]FileResult, erro
 
 	// Phase 1: Collect all generic class definitions (templates)
 	hasErrors := t.collectTemplates(files, &results)
+
+	// Phase 1.5: Process forced instantiations from config
+	hasErrors = t.processInstantiations(&results) || hasErrors
 
 	// Phase 2: Collect all generic instantiations
 	hasErrors = t.collectUsages(files, &results) || hasErrors
@@ -104,6 +115,70 @@ func (t *Transpiler) collectTemplates(files map[string]string, results *[]FileRe
 		}
 	}
 	return hasErrors
+}
+
+// processInstantiations validates and processes forced instantiations from config (Phase 1.5)
+func (t *Transpiler) processInstantiations(results *[]FileResult) bool {
+	if len(t.instantiations) == 0 {
+		return false
+	}
+
+	hasErrors := false
+	for _, instantiation := range t.instantiations {
+		// Parse the instantiation string to extract baseType and expression
+		expr, err := t.parseInstantiation(instantiation)
+		if err != nil {
+			hasErrors = true
+			*results = append(*results, FileResult{
+				OriginalPath: "peakconfig.json",
+				Error:        fmt.Errorf("invalid instantiation '%s': %w", instantiation, err),
+			})
+			continue
+		}
+
+		// Validate that the template exists
+		if _, exists := t.templates[expr.BaseType]; !exists {
+			hasErrors = true
+			*results = append(*results, FileResult{
+				OriginalPath: "peakconfig.json",
+				Error:        fmt.Errorf("instantiation '%s' references undefined template '%s'", instantiation, expr.BaseType),
+			})
+			continue
+		}
+
+		// Add to usages (same as discovered usages)
+		t.usages[instantiation] = expr
+	}
+
+	return hasErrors
+}
+
+// parseInstantiation parses an instantiation string like "Queue<Integer>" into a GenericExpr
+func (t *Transpiler) parseInstantiation(instantiation string) (*parser.GenericExpr, error) {
+	// Use FindGenerics to parse the instantiation string
+	// It should find exactly one generic expression
+	p := parser.NewParser(instantiation)
+	p.SetFileName("peakconfig.json")
+
+	generics, err := p.FindGenerics()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(generics) == 0 {
+		return nil, fmt.Errorf("no generic expression found")
+	}
+
+	if len(generics) > 1 {
+		return nil, fmt.Errorf("multiple generic expressions found, expected one")
+	}
+
+	// Return the single generic expression
+	for _, expr := range generics {
+		return expr, nil
+	}
+
+	return nil, fmt.Errorf("unexpected error parsing instantiation")
 }
 
 // collectUsages scans all files for generic instantiations (Phase 2)

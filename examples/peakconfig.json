@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "instantiate": [
+      "Queue<Boolean>",
+      "Queue<Decimal>",
+      "Dict<Boolean, String>"
+    ]
+  }
+}

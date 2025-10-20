@@ -21,6 +21,10 @@ type CompilerOptions struct {
 
 	// Verbose enables detailed logging (default: false)
 	Verbose bool `json:"verbose,omitempty"`
+
+	// Instantiate is a list of generic instantiations to always generate
+	// even if not used in code. Example: ["Optional<Double>", "Queue<String>"]
+	Instantiate []string `json:"instantiate,omitempty"`
 }
 
 // ConfigFile represents the structure of peak.config.json
@@ -30,10 +34,11 @@ type ConfigFile struct {
 
 // Config represents the runtime configuration for the transpiler
 type Config struct {
-	SourceDir string // Directory to compile (from CLI or current dir)
-	OutDir    string // Output directory (absolute path, empty = co-located)
-	Watch     bool   // Watch mode enabled
-	Verbose   bool   // Enable verbose logging
+	SourceDir   string   // Directory to compile (from CLI or current dir)
+	OutDir      string   // Output directory (absolute path, empty = co-located)
+	Watch       bool     // Watch mode enabled
+	Verbose     bool     // Enable verbose logging
+	Instantiate []string // Generic instantiations to always generate
 }
 
 // CLIFlags represents command-line flags
@@ -118,6 +123,7 @@ func loadConfigFile(path string, config *Config) error {
 		config.OutDir = opts.OutDir
 	}
 	config.Verbose = opts.Verbose
+	config.Instantiate = opts.Instantiate
 
 	return nil
 }
