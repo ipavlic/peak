@@ -176,15 +176,25 @@ examples/
 
 **Config File** (optional)
 
-Create `peakconfig.json` in your source directory to customize output:
+Create `peakconfig.json` in your source directory to customize behavior:
 
 ```json
 {
-  "outDir": "build/classes"
+  "compilerOptions": {
+    "outDir": "build/classes",
+    "instantiate": [
+      "Queue<Boolean>",
+      "Optional<Double>",
+      "Dict<String, Integer>"
+    ]
+  }
 }
 ```
 
-The `--out-dir` flag overrides the config file.
+**Configuration Options:**
+
+- `outDir` - Output directory for generated files (can be overridden by `--out-dir` flag)
+- `instantiate` - List of generic instantiations to always generate, even if not used in code
 
 ## Features
 
