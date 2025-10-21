@@ -34,6 +34,10 @@ type CompilerOptions struct {
 	// Empty string means co-located with source (default behavior)
 	OutDir string `json:"outDir,omitempty"`
 
+	// ApiVersion is the Salesforce API version for generated .cls-meta.xml files
+	// Default: "65.0"
+	ApiVersion string `json:"apiVersion,omitempty"`
+
 	// Verbose enables detailed logging (default: false)
 	Verbose bool `json:"verbose,omitempty"`
 
@@ -51,6 +55,7 @@ type Config struct {
 	RootDir     string       // Root directory for structure preservation (absolute path, empty = use SourceDir)
 	SourceDir   string       // Directory to compile (from CLI or current dir)
 	OutDir      string       // Output directory (absolute path, empty = co-located)
+	ApiVersion  string       // Salesforce API version for .cls-meta.xml files (default: "65.0")
 	Watch       bool         // Watch mode enabled
 	Verbose     bool         // Enable verbose logging
 	Instantiate *Instantiate // Structured instantiation for classes and methods
@@ -58,10 +63,11 @@ type Config struct {
 
 // CLIFlags represents command-line flags
 type CLIFlags struct {
-	RootDir string
-	OutDir  string
-	Watch   bool
-	Verbose bool
+	RootDir    string
+	OutDir     string
+	ApiVersion string
+	Watch      bool
+	Verbose    bool
 }
 
 // LoadConfig loads configuration for a specific source directory.
@@ -75,11 +81,12 @@ func LoadConfig(sourceDir string, flags CLIFlags) (*Config, error) {
 
 	// Start with defaults (backwards compatible behavior)
 	config := &Config{
-		RootDir:   "",    // Empty = use SourceDir for relative paths
-		SourceDir: absSourceDir,
-		OutDir:    "",    // Empty = co-located with source
-		Watch:     false,
-		Verbose:   false,
+		RootDir:    "",      // Empty = use SourceDir for relative paths
+		SourceDir:  absSourceDir,
+		OutDir:     "",      // Empty = co-located with source
+		ApiVersion: "65.0",  // Default Salesforce API version
+		Watch:      false,
+		Verbose:    false,
 	}
 
 	// Try to load config file from source directory (optional)
@@ -95,6 +102,9 @@ func LoadConfig(sourceDir string, flags CLIFlags) (*Config, error) {
 	}
 	if flags.OutDir != "" {
 		config.OutDir = flags.OutDir
+	}
+	if flags.ApiVersion != "" {
+		config.ApiVersion = flags.ApiVersion
 	}
 	if flags.Watch {
 		config.Watch = true
@@ -154,6 +164,9 @@ func loadConfigFile(path string, config *Config) error {
 	if opts.OutDir != "" {
 		config.OutDir = opts.OutDir
 	}
+	if opts.ApiVersion != "" {
+		config.ApiVersion = opts.ApiVersion
+	}
 	config.Verbose = opts.Verbose
 	config.Instantiate = opts.Instantiate
 
@@ -190,4 +203,14 @@ func (c *Config) ResolveOutputPath(sourcePath string, outputExtension string) (s
 	// Preserve directory structure in output
 	outputDir := filepath.Join(c.OutDir, filepath.Dir(relPath))
 	return filepath.Join(outputDir, name+outputExtension), nil
+}
+
+// GenerateMetaXML generates the content for a .cls-meta.xml file
+func (c *Config) GenerateMetaXML() string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>%s</apiVersion>
+    <status>Active</status>
+</ApexClass>
+`, c.ApiVersion)
 }

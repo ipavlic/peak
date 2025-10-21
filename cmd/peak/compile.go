@@ -13,8 +13,8 @@ import (
 )
 
 // runFolder compiles all .peak files in the specified directory.
-func runFolder(dir string, rootDir string, outDir string) error {
-	return compileDirectory(dir, rootDir, outDir)
+func runFolder(dir string, rootDir string, outDir string, apiVersion string) error {
+	return compileDirectory(dir, rootDir, outDir, apiVersion)
 }
 
 const (
@@ -33,13 +33,14 @@ const (
 )
 
 // compileDirectory compiles all .peak files in the specified directory.
-func compileDirectory(dir string, rootDir string, outDir string) error {
+func compileDirectory(dir string, rootDir string, outDir string, apiVersion string) error {
 	startTime := time.Now()
 
 	// Load configuration
 	cfg, err := config.LoadConfig(dir, config.CLIFlags{
-		RootDir: rootDir,
-		OutDir:  outDir,
+		RootDir:    rootDir,
+		OutDir:     outDir,
+		ApiVersion: apiVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("error loading configuration: %w", err)
@@ -113,8 +114,16 @@ func compileDirectory(dir string, rootDir string, outDir string) error {
 			return fmt.Errorf("error creating output directory %s: %w", outputDir, err)
 		}
 
+		// Write the .cls file
 		if err := os.WriteFile(result.OutputPath, []byte(result.Content), filePermission); err != nil {
 			return fmt.Errorf("error writing %s: %w", result.OutputPath, err)
+		}
+
+		// Write the .cls-meta.xml file
+		metaPath := result.OutputPath + "-meta.xml"
+		metaContent := cfg.GenerateMetaXML()
+		if err := os.WriteFile(metaPath, []byte(metaContent), filePermission); err != nil {
+			return fmt.Errorf("error writing %s: %w", metaPath, err)
 		}
 
 		generatedFiles++

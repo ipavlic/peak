@@ -20,9 +20,10 @@ func main() {
 	watchMode := false
 	rootDir := ""
 	outDir := ""
+	apiVersion := ""
 	dir := "."
 
-	// Parse arguments: [directory] [--watch] [--root-dir <dir>] [--out-dir <dir>] [--help]
+	// Parse arguments: [directory] [--watch] [--root-dir <dir>] [--out-dir <dir>] [--api-version <version>] [--help]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--help" || arg == "-h" {
@@ -46,6 +47,14 @@ func main() {
 			}
 			i++
 			outDir = args[i]
+		} else if arg == "--api-version" || arg == "-a" {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a version argument\n\n", arg)
+				printUsage()
+				os.Exit(1)
+			}
+			i++
+			apiVersion = args[i]
 		} else if !strings.HasPrefix(arg, "-") {
 			if dir == "." {
 				// First non-flag argument is the directory
@@ -66,9 +75,9 @@ func main() {
 	// Run in watch or compile mode
 	var err error
 	if watchMode {
-		err = runWatch(dir, rootDir, outDir)
+		err = runWatch(dir, rootDir, outDir, apiVersion)
 	} else {
-		err = runFolder(dir, rootDir, outDir)
+		err = runFolder(dir, rootDir, outDir, apiVersion)
 	}
 
 	if err != nil {
@@ -90,18 +99,21 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sUSAGE%s\n", boldBlue, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s [directory] [options]\n\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "%sOPTIONS%s\n", boldBlue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--help, -h%s                 Display this help message\n", blue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--watch, -w%s                Watch for changes and recompile\n", blue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--root-dir, -r%s <dir>       Root directory for preserving structure (overrides config)\n", blue, reset)
-	fmt.Fprintf(os.Stderr, "  %s--out-dir, -o%s <dir>        Output directory (overrides config file)\n\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--help, -h%s                   Display this help message\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--watch, -w%s                  Watch for changes and recompile\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--root-dir, -r%s <dir>         Root directory for preserving structure (overrides config)\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--out-dir, -o%s <dir>          Output directory (overrides config file)\n", blue, reset)
+	fmt.Fprintf(os.Stderr, "  %s--api-version, -a%s <version>  Salesforce API version for .cls-meta.xml (default: 65.0)\n\n", blue, reset)
 	fmt.Fprintf(os.Stderr, "%sEXAMPLES%s\n", boldBlue, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s                                        # Compile current directory\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s examples/                              # Compile specific directory\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch                                # Watch current directory\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --out-dir build/ src/                  # Output to build/\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --root-dir . --out-dir build/ src/     # Preserve structure from root\n", green, reset, reset)
+	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --api-version 64.0 src/                # Use API version 64.0\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "  %s$ %speak%s --watch --out-dir dist/                # Watch and output to dist/\n\n", green, reset, reset)
 	fmt.Fprintf(os.Stderr, "%sCONFIGURATION%s\n", boldBlue, reset)
 	fmt.Fprintf(os.Stderr, "  Config file: peakconfig.json in source directory\n")
 	fmt.Fprintf(os.Stderr, "  Default: Output .cls files co-located with source .peak files\n")
+	fmt.Fprintf(os.Stderr, "  Default API version: 65.0\n")
 }
