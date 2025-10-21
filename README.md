@@ -47,7 +47,7 @@ go install github.com/ipavlic/peak/cmd/peak@latest
 peak examples/                              # Transpile directory
 peak --watch examples/                      # Auto-recompile on changes
 peak --out-dir build/ src/                  # Custom output directory
-peak --root-dir . --out-dir build/ src/     # Preserve structure from root
+peak --root-dir . --out-dir build/          # Preserve structure from root
 peak --api-version 64.0 src/                # Set API version for meta files
 ```
 
