@@ -21,13 +21,11 @@ Queue<Account> accounts = new Queue<Account>();
 
 ## Why Peak?
 
-Peak brings compile-time generics to Apex without runtime overhead:
-
-- **Write once, use everywhere**: Create a generic like `Queue<T>` and use it with any type
-- **Type safety**: Generated classes are strongly typed — no casting, no runtime errors
-- **Zero runtime cost**: All generics resolve at compile time to concrete classes
-- **Future-proof**: Minimal syntax transformation means compatibility with upcoming Apex versions
-- **Nested generics**: Support for complex types like `Queue<List<Integer>>`
+- **Write once, use everywhere** - Create a generic like `Queue<T>` and use it with any type
+- **Type safety** - Generated classes are strongly typed; no casting, no runtime errors
+- **Zero runtime cost** - All generics resolve at compile time to concrete classes
+- **Future-proof** - Minimal syntax transformation ensures compatibility with Apex updates
+- **Nested generics** - Support for complex types like `Queue<List<Integer>>`
 
 ## Quick Start
 
@@ -43,20 +41,12 @@ go build -o peak ./cmd/peak
 go install github.com/ipavlic/peak/cmd/peak@latest
 ```
 
-### Basic Usage
+### Usage
 
 ```bash
-# Show help
-peak --help
-
-# Transpile all .peak files in a directory
-peak examples/
-
-# Watch mode - automatically recompile on changes
-peak --watch examples/
-
-# Specify output directory
-peak --out-dir build/ src/
+peak examples/                  # Transpile directory
+peak --watch examples/          # Auto-recompile on changes
+peak --out-dir build/ src/      # Custom output directory
 ```
 
 ## How It Works
@@ -101,7 +91,7 @@ public class QueueExample {
 }
 ```
 
-### Step 3: Transpile
+### Step 3: Transpile & Output
 
 Run Peak to generate concrete Apex classes:
 
@@ -109,80 +99,43 @@ Run Peak to generate concrete Apex classes:
 peak examples/
 ```
 
-### Step 4: What You Get
+Peak generates:
 
-Peak generates three types of output:
+1. **Transpiled usage files** - `QueueExample.cls` with generic references replaced:
+   ```apex
+   public class QueueExample {
+       private QueueInteger intQueue;    // Queue<Integer> → QueueInteger
+       private QueueString stringQueue;  // Queue<String> → QueueString
+       // ...
+   }
+   ```
 
-**1. Skips Templates**
-`Queue.peak` is recognized as a template (it defines `Queue<T>`) and no `Queue.cls` is generated.
+2. **Concrete class files** - Type-specific classes from templates:
+   - `QueueInteger.cls` - all `T` replaced with `Integer`
+   - `QueueString.cls` - all `T` replaced with `String`
 
-**2. Transpiled Usage Files**
-`QueueExample.cls` with generic references replaced by concrete class names:
-```apex
-public class QueueExample {
-    private QueueInteger intQueue;    // Queue<Integer> → QueueInteger
-    private QueueString stringQueue;  // Queue<String> → QueueString
+3. **Templates skipped** - `Queue.peak` is not compiled (it's a template)
 
-    public QueueExample() {
-        this.intQueue = new QueueInteger();
-        this.stringQueue = new QueueString();
-    }
-}
-```
+All `.cls` files are ready to deploy to Salesforce!
 
-**3. Concrete Class Files**
-Type-specific classes generated from templates:
-- `QueueInteger.cls` - all `T` replaced with `Integer`
-- `QueueString.cls` - all `T` replaced with `String`
-
-These `.cls` files are ready to deploy to Salesforce!
-
-## CLI Reference
-
-### Commands
-
-```bash
-# Show help
-peak --help
-peak -h
-
-# Transpile directory
-peak [directory]              # Transpile all .peak files (default: current directory)
-peak examples/                # Transpile examples/ directory
-
-# Watch mode
-peak --watch [directory]      # Auto-recompile on file changes
-peak -w                       # Short form
-
-# Custom output directory
-peak --out-dir <dir>          # Override output location
-peak -o build/                # Short form
-```
-
-### Configuration
+## Configuration
 
 **Output Location**
 
-By default, generated `.cls` files are placed alongside their source `.peak` files:
+By default, `.cls` files are placed alongside source `.peak` files. Override with `--out-dir`:
 
-```
-examples/
-├── Queue.peak              # Template (not compiled)
-├── QueueExample.peak       # Usage file
-├── QueueExample.cls        # ✓ Generated
-├── QueueInteger.cls        # ✓ Generated
-└── QueueString.cls         # ✓ Generated
+```bash
+peak --out-dir build/classes src/
 ```
 
 **Config File** (optional)
 
-Create `peakconfig.json` in your source directory to customize behavior:
+Create `peakconfig.json` in your source directory:
 
 ```json
 {
   "compilerOptions": {
     "outDir": "build/classes",
-    "instantiate": {
     "instantiate": {
       "classes": {
         "Queue": ["Integer", "String", "Boolean"],
@@ -190,22 +143,17 @@ Create `peakconfig.json` in your source directory to customize behavior:
       },
       "methods": {
         "Repository.get": ["Account", "Contact", "String"],
-        "Repository.put": ["Account", "Contact"],
-        "Repository.getOrDefault": ["String", "Integer"]
+        "Repository.put": ["Account", "Contact"]
       }
     }
   }
 }
 ```
 
-**Configuration Options:**
-
-- `outDir` - Output directory for generated files (can be overridden by `--out-dir` flag)
-- `instantiate` - List of generic instantiations to always generate, even if not used in code
-- `instantiate` - Structured instantiation for both classes and methods:
-  - `classes` - Map of template names to type arguments (e.g., `"Queue": ["Integer", "String"]`)
-  - `methods` - Map of method keys to type arguments (e.g., `"ClassName.methodName": ["String", "Decimal"]`)
-    - For methods with multiple type parameters, use comma-separated types (e.g., `"String,String"` for `<K,V>` with both as String)
+**Options:**
+- `outDir` - Output directory (can be overridden by `--out-dir` flag)
+- `instantiate.classes` - Force generation of specific class instantiations
+- `instantiate.methods` - Force generation of specific method instantiations (format: `"ClassName.methodName": ["Type1", "Type2"]`)
 
 ## Features
 
@@ -220,9 +168,9 @@ Type parameters must be single uppercase letters (`T`, `K`, `V`, etc.):
 ✗ class Dict<T, T>            // Error - duplicate parameters
 ```
 
-### Built-in Generics Preserved
+### Built-in Generics
 
-Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Peak only transforms your custom generic classes.
+Apex's native `List<T>`, `Set<T>`, and `Map<K,V>` remain unchanged. Only custom generic classes are transformed.
 
 ### Multiple Type Parameters
 
@@ -262,40 +210,16 @@ Generates concrete classes like `QueueListInteger.cls` and `DictStringQueueAccou
 
 ### Generic Methods
 
-Peak supports generic methods with type parameters, allowing you to create reusable methods that work with any type:
+Define generic methods that work with any type:
 
 ```apex
-// Repository.peak - A generic cache/repository
 public class Repository {
-    private Map<String, Object> cache;
-
-    public Repository() {
-        this.cache = new Map<String, Object>();
-    }
-
-    // Generic method to get a cached value
-    public <T> T get(String key) {
-        return (T) cache.get(key);
-    }
-
-    // Generic method to store a value
-    public <T> void put(String key, T value) {
-        cache.put(key, value);
-    }
-
-    // Generic method to get with default value
-    public <T> T getOrDefault(String key, T defaultValue) {
-        if (cache.containsKey(key)) {
-            return (T) cache.get(key);
-        }
-        return defaultValue;
-    }
+    public <T> T get(String key) { ... }
+    public <T> void put(String key, T value) { ... }
 }
 ```
 
-**Generated Concrete Methods**
-
-Configure which concrete methods to generate using `instantiate` in `peakconfig.json`:
+Configure concrete method generation in `peakconfig.json`:
 
 ```json
 {
@@ -303,106 +227,66 @@ Configure which concrete methods to generate using `instantiate` in `peakconfig.
     "instantiate": {
       "methods": {
         "Repository.get": ["Account", "Contact", "String"],
-        "Repository.put": ["Account", "Contact"],
-        "Repository.getOrDefault": ["String", "Integer"]
+        "Repository.put": ["Account", "Contact"]
       }
     }
   }
 }
 ```
 
-This generates concrete methods inserted into the same class:
-
+Generates concrete methods:
 ```apex
-// Generated concrete methods
 public Account getAccount(String key) { ... }
 public Contact getContact(String key) { ... }
-public String getString(String key) { ... }
-
 public void putAccount(String key, Account value) { ... }
-public void putContact(String key, Contact value) { ... }
-
-public String getOrDefaultString(String key, String defaultValue) { ... }
-public Integer getOrDefaultInteger(String key, Integer defaultValue) { ... }
 ```
 
-**Method Naming Convention:**
-- Single type parameter: `methodName` + type (e.g., `getString`)
-- Multiple type parameters: `methodName` + all types concatenated (e.g., `transformStringString`)
-
-### Valid Generic Expressions
-
-```apex
-Queue<Integer>               // Simple type
-Dict<String, Account>        // Multiple parameters
-Queue<List<Integer>>         // Nested generics
-Dict<Integer, Queue<String>> // Complex nesting
-```
+Naming: `methodName` + type (e.g., `getString`, `putAccount`)
 
 ### Error Handling
 
-Peak provides clear error messages with line and column information:
+Peak provides clear error messages with line/column info. Files with errors are reported but don't block other files from compiling.
 
 ```
 Queue.peak:5:14: error: type parameter must be a single letter, got: Type
-public class Queue<Type> {
-                   ^
 ```
-
-Files with errors are reported but don't block compilation of other files.
 
 ## Examples
 
-The `examples/` directory contains complete working demonstrations:
+See `examples/` directory:
 
-### Templates
-- **`Queue.peak`** - Generic queue with single type parameter `<T>`
-- **`Dict.peak`** - Generic dictionary with key-value parameters `<K, V>`
+**Templates:**
+- `Queue.peak` - Generic queue `<T>`
+- `Dict.peak` - Generic dictionary `<K, V>`
+- `Repository.peak` - Generic methods
 
-### Usage Examples
-- **`QueueExample.peak`** - Basic usage of `Queue<Integer>` and `Queue<String>`
-- **`NestedGenericsExample.peak`** - Nested types like `Queue<List<Integer>>`
-- **`MultiParametersExample.peak`** - Multiple instantiations of `Dict<K, V>`
-- **`ComplexExample.peak`** - Advanced patterns like `Dict<String, Queue<Integer>>`
-- **`Repository.peak`** - Generic methods with `get<T>`, `put<T>`, and `getOrDefault<T>`
+**Usage:**
+- `QueueExample.peak` - Basic usage
+- `NestedGenericsExample.peak` - Nested types (`Queue<List<Integer>>`)
+- `ComplexExample.peak` - Advanced patterns
 
-Run `peak examples/` to see the transpiler in action!
+Run `peak examples/` to try it out!
 
 ## Development
 
-### Build
-
 ```bash
-go build -o peak ./cmd/peak
+go build -o peak ./cmd/peak    # Build
+go test ./...                   # Test
 ```
 
-### Test
+**Structure:**
+- `cmd/peak/` - CLI application
+- `pkg/parser/` - Generic syntax parser
+- `pkg/transpiler/` - Template instantiation
+- `examples/` - Example files
 
-```bash
-go test ./...
-```
+## Limitations
 
-### Project Structure
+**Not yet supported:**
+- Type constraints: `class Queue<T extends SObject>`
+- Variance annotations: `class Queue<out T>`
 
-```
-peak/
-├── cmd/peak/          # CLI application
-├── pkg/
-│   ├── parser/        # Generic syntax parser
-│   └── transpiler/    # Template instantiation logic
-└── examples/          # Example .peak files
-```
-
-## Current Limitations
-
-Peak focuses on class-level generics. These features are not yet supported:
-
-| Feature | Status | Example |
-|---------|--------|---------|
-| Type constraints | Not supported | `class Queue<T extends SObject>` |
-| Variance annotations | Not supported | `class Queue<out T>` |
-
-**Name Generation**: Generated class names use simple concatenation (`Queue<List<Integer>>` → `QueueListInteger`). This can create long names for deeply nested generics but ensures predictability and avoids naming conflicts.
+**Note:** Generated class names use simple concatenation (`Queue<List<Integer>>` → `QueueListInteger`), which can create long names for deeply nested generics.
 
 ## Contributing
 
