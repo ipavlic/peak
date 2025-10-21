@@ -44,9 +44,11 @@ go install github.com/ipavlic/peak/cmd/peak@latest
 ### Usage
 
 ```bash
-peak examples/                  # Transpile directory
-peak --watch examples/          # Auto-recompile on changes
-peak --out-dir build/ src/      # Custom output directory
+peak examples/                              # Transpile directory
+peak --watch examples/                      # Auto-recompile on changes
+peak --out-dir build/ src/                  # Custom output directory
+peak --root-dir . --out-dir build/ src/     # Preserve structure from root
+peak --api-version 64.0 src/                # Set API version for meta files
 ```
 
 ## How It Works
@@ -120,15 +122,17 @@ All `.cls` files are ready to deploy to Salesforce!
 
 ## Configuration
 
-**Output Location**
+### CLI Flags
 
-By default, `.cls` files are placed alongside source `.peak` files. Override with `--out-dir`:
-
-```bash
-peak --out-dir build/classes src/
+```
+--help, -h                   Display help message
+--watch, -w                  Watch for changes and auto-recompile
+--out-dir, -o <dir>          Output directory (overrides config)
+--root-dir, -r <dir>         Root directory for preserving structure
+--api-version, -a <version>  Salesforce API version for .cls-meta.xml (default: 65.0)
 ```
 
-**Config File** (optional)
+### Config File (peakconfig.json)
 
 Create `peakconfig.json` in your source directory:
 
@@ -136,6 +140,9 @@ Create `peakconfig.json` in your source directory:
 {
   "compilerOptions": {
     "outDir": "build/classes",
+    "rootDir": ".",
+    "apiVersion": "65.0",
+    "verbose": false,
     "instantiate": {
       "classes": {
         "Queue": ["Integer", "String", "Boolean"],
@@ -150,10 +157,25 @@ Create `peakconfig.json` in your source directory:
 }
 ```
 
-**Options:**
-- `outDir` - Output directory (can be overridden by `--out-dir` flag)
+**Config Options:**
+
+- `outDir` - Output directory for generated files (default: co-located with source)
+- `rootDir` - Root directory to preserve relative paths when using `outDir`. When set with `outDir`, preserves directory structure relative to this root instead of the source directory.
+- `apiVersion` - Salesforce API version for .cls-meta.xml files (default: "65.0")
+- `verbose` - Enable detailed logging (default: false)
 - `instantiate.classes` - Force generation of specific class instantiations
 - `instantiate.methods` - Force generation of specific method instantiations (format: `"ClassName.methodName": ["Type1", "Type2"]`)
+
+**Priority:** CLI flags > Config file > Defaults
+
+**Example - Directory Structure Preservation:**
+```bash
+# Without rootDir: src/utils/Queue.peak → build/classes/utils/Queue.cls
+peak --out-dir build/classes src/
+
+# With rootDir: src/utils/Queue.peak → build/classes/src/utils/Queue.cls
+peak --root-dir . --out-dir build/classes src/
+```
 
 ## Features
 
